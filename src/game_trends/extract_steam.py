@@ -33,10 +33,12 @@ except ImportError:  # pragma: no cover
 STEAM_APPDETAILS = "https://store.steampowered.com/api/appdetails"
 STEAMSPY_API = "https://steamspy.com/api.php"
 
-DEFAULT_UA = os.environ.get("GAME_TRENDS_UA", "game-trends-portfolio/0.1")
+DEFAULT_UA = os.environ.get("GAME_TRENDS_UA", "game-trend-lakehouse/0.1")
 DEFAULT_OUT_DIR = Path(os.environ.get("GAME_TRENDS_OUT_DIR", "data/raw"))
 DEFAULT_SAMPLE_N = int(os.environ.get("GAME_TRENDS_SAMPLE_N", "25"))
-MAX_SAMPLE_N = 100  # hard cap — this is a portfolio extractor, not a crawler
+# Hard cap to keep this a focused extractor rather than a full Steam mirror;
+# raise it deliberately if you have a real reason to pull more.
+MAX_SAMPLE_N = 100
 
 FRESH_HOURS = 24
 

@@ -1,18 +1,19 @@
 # Game Trend Lakehouse
 
-A portfolio-quality Databricks project that builds an end-to-end **medallion lakehouse** over public gaming datasets. It demonstrates ingestion from open APIs, Delta-based Bronze/Silver/Gold layers, Databricks Workflows / Lakeflow-style pipelines, SQL dashboarding, and **Genie** natural-language questions.
+An end-to-end **medallion lakehouse** on Databricks for analyzing the PC gaming market. It ingests public Steam and SteamSpy data into Delta tables (Bronze → Silver → Gold), runs as a Workflow / Lakeflow-style pipeline, and exposes the result to Databricks SQL dashboards and **Genie** natural-language queries.
 
-The goal is to look like a real, deployable data product — not a toy notebook — while remaining fully reproducible with **no paid credentials**.
+The pipeline is fully reproducible with **no paid credentials** — every data source is public and free.
 
 ---
 
 ## 1. Project Goal
 
-Track and analyze trends in the PC gaming market (platforms, genres, release cadence, popularity) using public Steam metadata. The lakehouse answers questions like:
+Track and analyze trends in the PC gaming market — platforms, genres, release cadence, pricing — using public Steam metadata. Useful questions the lakehouse answers:
 
 - Which genres are gaining release share year-over-year?
 - How does the price distribution differ between indie and AAA-adjacent titles?
 - Which platforms / OS targets dominate new releases?
+- How is Linux / SteamOS support changing over time?
 - What does the long tail of "owned but unplayed" look like?
 
 ---
@@ -70,21 +71,21 @@ The skeleton bundle in `resources/databricks_asset_bundle.yml` shows how to wire
 
 ---
 
-## 5. Databricks Features Showcased
+## 5. Databricks Features Used
 
 - **Medallion architecture** — Bronze (raw Delta), Silver (cleaned & deduped), Gold (business metrics).
 - **Delta Lake** — schema enforcement, MERGE/upsert, time travel-friendly append patterns.
 - **Notebooks** — `# COMMAND ----------` cell markers for clean Repos round-trips.
 - **Workflows / Lakeflow** — declarative pipeline YAML skeleton.
-- **Databricks SQL** — gold metrics modeled as `gold_*` tables ready to back dashboards.
-- **Genie** — `04_genie_demo_questions.sql` shows natural-language questions paired with SQL the LLM should generate; useful for Genie space configuration and evaluation.
+- **Databricks SQL** — gold metrics modeled as `gold_*` tables that back dashboards directly.
+- **Genie** — `04_genie_demo_questions.sql` pairs natural-language questions with reference SQL, both for seeding a Genie space and for evaluating its NL→SQL output.
 - **Unity Catalog-ready** — three-level naming (`catalog.schema.table`) used throughout, with sensible defaults.
 
 ---
 
-## 6. Genie Demo Questions
+## 6. Example Genie Questions
 
-Once the gold tables are registered, paste these into a Genie space:
+Once the gold tables are registered, paste these into a Genie space as starter prompts:
 
 1. *"What were the top 5 genres by number of releases last year?"*
 2. *"Compare average price of indie vs non-indie titles by year."*
@@ -92,19 +93,20 @@ Once the gold tables are registered, paste these into a Genie space:
 4. *"Show me the genre mix for free-to-play titles only."*
 5. *"Which release year had the most Linux-supporting titles?"*
 
-The SQL Genie should generate is in [`notebooks/04_genie_demo_questions.sql`](notebooks/04_genie_demo_questions.sql) so you can evaluate accuracy.
+The reference SQL each question should resolve to is in [`notebooks/04_genie_demo_questions.sql`](notebooks/04_genie_demo_questions.sql) so you can evaluate Genie's NL→SQL accuracy.
 
 ---
 
-## 7. Portfolio Value
+## 7. Why Game Trend Data
 
-This repo is built to demonstrate, in one place:
+Steam is one of the largest and most openly queryable catalogs of software releases anywhere — tens of thousands of titles with structured metadata for genres, platforms, pricing, release dates, ownership tiers, and player time. That makes it a genuinely useful substrate for several kinds of analysis:
 
-- **Data Engineering**: API ingestion with throttling, idempotent Bronze landing, schema-enforced Silver, business-friendly Gold.
-- **SQL & Performance**: well-shaped aggregate tables, partition-friendly date columns, examples of windowed analytics.
-- **Cloud / Databricks**: notebooks, jobs/pipelines-as-code, Unity Catalog naming, Genie integration.
-- **Software engineering**: typed pure-Python transforms, unit tests, Makefile, asset bundle skeleton, `.env.example`, no secrets.
-- **AI/Agents adjacent**: Genie NL→SQL evaluation set, structured for future agent workflows (e.g., an "ingest planner" agent).
+- **Catalog & market analysis** — track how genre mix, pricing, and platform support shift year over year.
+- **Personal gaming data** — overlay your own library, wishlist, or playtime against the broader release landscape.
+- **Streaming / community enrichment** — the schema is structured so that Twitch viewers, Reddit mentions, or community ratings can be merged in later without reshaping Bronze or Silver.
+- **AI agent inputs** — the Gold tables and Genie space form a clean tool surface for agents that need to reason about games (recommendation flows, "what should I play next" assistants, market-research helpers).
+
+The project is designed to be extended: new sources land in Bronze as additional `source` values, schema-aware transforms move them through Silver, and new business questions become new Gold tables.
 
 ---
 
