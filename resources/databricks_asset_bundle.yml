@@ -1,0 +1,83 @@
+# Databricks Asset Bundle skeleton for the Game Trend Lakehouse.
+#
+# This is a *placeholder* — fill in `workspace.host`, `catalog`, and (if
+# applicable) the cluster spec to match your workspace before running:
+#
+#     databricks bundle validate
+#     databricks bundle deploy -t dev
+#     databricks bundle run game_trend_lakehouse_job -t dev
+#
+# Docs: https://docs.databricks.com/dev-tools/bundles/index.html
+
+bundle:
+  name: game_trend_lakehouse
+
+variables:
+  catalog:
+    description: Unity Catalog to write Bronze/Silver/Gold tables into.
+    default: main
+  schema:
+    description: Schema (database) inside the catalog.
+    default: game_trends
+  landing_path:
+    description: UC Volume folder holding raw *.jsonl files.
+    default: /Volumes/main/game_trends/landing
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://<your-workspace>.cloud.databricks.com   # PLACEHOLDER
+  prod:
+    mode: production
+    workspace:
+      host: https://<your-workspace>.cloud.databricks.com   # PLACEHOLDER
+
+resources:
+  jobs:
+    game_trend_lakehouse_job:
+      name: game-trend-lakehouse
+      tasks:
+        - task_key: ingest_bronze
+          notebook_task:
+            notebook_path: ../notebooks/01_ingest_steam.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              landing_path: ${var.landing_path}
+
+        - task_key: bronze_to_silver
+          depends_on:
+            - task_key: ingest_bronze
+          notebook_task:
+            notebook_path: ../notebooks/02_bronze_to_silver.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: gold_metrics
+          depends_on:
+            - task_key: bronze_to_silver
+          notebook_task:
+            notebook_path: ../notebooks/03_gold_metrics.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+      # Serverless is fine; uncomment a job_clusters block instead if you
+      # need a classic cluster. Leaving it unset lets the workspace default
+      # take over.
+      #
+      # job_clusters:
+      #   - job_cluster_key: shared
+      #     new_cluster:
+      #       spark_version: 14.3.x-scala2.12
+      #       node_type_id: i3.xlarge
+      #       num_workers: 2
+
+      schedule:
+        # Run nightly at 03:17 UTC — adjust as needed.
+        quartz_cron_expression: 0 17 3 * * ?
+        timezone_id: UTC
+        pause_status: PAUSED   # opt in by switching to UNPAUSED after review

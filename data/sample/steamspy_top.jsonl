@@ -1,0 +1,2 @@
+{"source":"steamspy","ingested_at":"2026-05-01T12:00:00+00:00","payload":"{\"220\":{\"appid\":220,\"name\":\"Half-Life 2\",\"developer\":\"Valve\",\"publisher\":\"Valve\",\"score_rank\":\"\",\"owners\":\"10,000,000 .. 20,000,000\",\"average_forever\":1234,\"price\":\"999\"}}"}
+{"source":"steamspy","ingested_at":"2026-05-01T12:00:01+00:00","payload":"{\"570\":{\"appid\":570,\"name\":\"Dota 2\",\"developer\":\"Valve\",\"publisher\":\"Valve\",\"score_rank\":\"\",\"owners\":\"100,000,000 .. 200,000,000\",\"average_forever\":9876,\"price\":\"0\"}}"}

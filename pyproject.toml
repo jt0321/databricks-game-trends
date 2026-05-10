@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "game-trends"
+version = "0.1.0"
+description = "Game Trend Lakehouse — public-Steam medallion pipeline for Databricks."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "jt0321" }]
+dependencies = [
+    "requests>=2.31,<3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4,<9.0"]
+
+[project.scripts]
+game-trends-extract = "game_trends.extract_steam:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"

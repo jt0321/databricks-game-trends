@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Local secrets / env
+.env
+.env.local
+
+# Test / tooling
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Data — keep the curated sample, ignore everything else under data/
+data/raw/
+data/bronze/
+data/silver/
+data/gold/
+!data/sample/
+!data/sample/**
+
+# Databricks artefacts
+.databricks/
+*.dbc

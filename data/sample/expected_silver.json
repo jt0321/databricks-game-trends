@@ -1,0 +1,62 @@
+[
+  {
+    "appid": 220,
+    "name": "Half-Life 2",
+    "release_year": 2004,
+    "is_free": false,
+    "price_cents": 999,
+    "supports_windows": true,
+    "supports_mac": true,
+    "supports_linux": true,
+    "primary_genre": "Action",
+    "genre_list": ["Action"]
+  },
+  {
+    "appid": 570,
+    "name": "Dota 2",
+    "release_year": 2013,
+    "is_free": true,
+    "price_cents": 0,
+    "supports_windows": true,
+    "supports_mac": true,
+    "supports_linux": true,
+    "primary_genre": "MOBA",
+    "genre_list": ["MOBA", "Free To Play"]
+  },
+  {
+    "appid": 413150,
+    "name": "Stardew Valley",
+    "release_year": 2016,
+    "is_free": false,
+    "price_cents": 1499,
+    "supports_windows": true,
+    "supports_mac": true,
+    "supports_linux": true,
+    "primary_genre": "Indie",
+    "genre_list": ["Indie", "RPG", "Simulation"]
+  },
+  {
+    "appid": 1086940,
+    "name": "Baldur's Gate 3",
+    "release_year": 2023,
+    "is_free": false,
+    "price_cents": 5999,
+    "supports_windows": true,
+    "supports_mac": true,
+    "supports_linux": false,
+    "primary_genre": "RPG",
+    "genre_list": ["RPG", "Adventure"]
+  },
+  {
+    "appid": 105600,
+    "name": "Terraria",
+    "release_year": 2011,
+    "is_free": false,
+    "price_cents": 999,
+    "supports_windows": true,
+    "supports_mac": true,
+    "supports_linux": true,
+    "primary_genre": "Action",
+    "genre_list": ["Action", "Indie"]
+  }
+]

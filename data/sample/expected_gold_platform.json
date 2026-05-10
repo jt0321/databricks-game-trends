@@ -1,0 +1,16 @@
+[
+  {"release_year": 2004, "platform": "windows", "title_count": 1, "free_pct": 0.0,    "avg_price_cents": 999.0},
+  {"release_year": 2004, "platform": "mac",     "title_count": 1, "free_pct": 0.0,    "avg_price_cents": 999.0},
+  {"release_year": 2004, "platform": "linux",   "title_count": 1, "free_pct": 0.0,    "avg_price_cents": 999.0},
+  {"release_year": 2011, "platform": "windows", "title_count": 1, "free_pct": 0.0,    "avg_price_cents": 999.0},
+  {"release_year": 2011, "platform": "mac",     "title_count": 1, "free_pct": 0.0,    "avg_price_cents": 999.0},
+  {"release_year": 2011, "platform": "linux",   "title_count": 1, "free_pct": 0.0,    "avg_price_cents": 999.0},
+  {"release_year": 2013, "platform": "windows", "title_count": 1, "free_pct": 1.0,    "avg_price_cents": 0.0},
+  {"release_year": 2013, "platform": "mac",     "title_count": 1, "free_pct": 1.0,    "avg_price_cents": 0.0},
+  {"release_year": 2013, "platform": "linux",   "title_count": 1, "free_pct": 1.0,    "avg_price_cents": 0.0},
+  {"release_year": 2016, "platform": "windows", "title_count": 1, "free_pct": 0.0,    "avg_price_cents": 1499.0},
+  {"release_year": 2016, "platform": "mac",     "title_count": 1, "free_pct": 0.0,    "avg_price_cents": 1499.0},
+  {"release_year": 2016, "platform": "linux",   "title_count": 1, "free_pct": 0.0,    "avg_price_cents": 1499.0},
+  {"release_year": 2023, "platform": "windows", "title_count": 1, "free_pct": 0.0,    "avg_price_cents": 5999.0},
+  {"release_year": 2023, "platform": "mac",     "title_count": 1, "free_pct": 0.0,    "avg_price_cents": 5999.0}
+]

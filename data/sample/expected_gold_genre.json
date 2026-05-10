@@ -1,0 +1,7 @@
+[
+  {"release_year": 2004, "primary_genre": "Action", "title_count": 1, "release_share": 1.0, "avg_price_cents": 999.0},
+  {"release_year": 2011, "primary_genre": "Action", "title_count": 1, "release_share": 1.0, "avg_price_cents": 999.0},
+  {"release_year": 2013, "primary_genre": "MOBA",   "title_count": 1, "release_share": 1.0, "avg_price_cents": 0.0},
+  {"release_year": 2016, "primary_genre": "Indie",  "title_count": 1, "release_share": 1.0, "avg_price_cents": 1499.0},
+  {"release_year": 2023, "primary_genre": "RPG",    "title_count": 1, "release_share": 1.0, "avg_price_cents": 5999.0}
+]
