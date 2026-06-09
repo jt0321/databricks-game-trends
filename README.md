@@ -51,12 +51,11 @@ Full details, rate-limit etiquette, and env vars in [`docs/data_sources.md`](doc
 ### Local (for transforms, tests, sample extraction)
 
 ```bash
-make install         # creates a venv and installs requirements
-make extract-sample  # pulls a tiny sample from Steam/SteamSpy to data/raw/
-make test            # runs pytest on pure-Python transforms
+uv run pytest               # runs tests on pure-Python transforms (automatically installs dependencies)
+uv run game-trends-extract  # pulls a tiny sample from Steam/SteamSpy to data/raw/
 ```
 
-Python 3.10+ required. Spark is **not** needed locally — Spark code lives in the Databricks notebooks; local logic is pure Python so tests stay fast and dependency-light.
+Python 3.10+ and [uv](https://github.com/astral-sh/uv) are required. Spark is **not** needed locally — Spark code lives in the Databricks notebooks; local logic is pure Python so tests stay fast and dependency-light.
 
 ### Databricks
 
@@ -116,9 +115,8 @@ The project is designed to be extended: new sources land in Bronze as additional
 .
 ├── README.md
 ├── LICENSE
-├── Makefile
-├── requirements.txt
 ├── pyproject.toml
+├── uv.lock
 ├── .env.example
 ├── .gitignore
 ├── docs/

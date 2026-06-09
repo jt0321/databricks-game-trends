@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tiny wrapper around the CLI extractor. Equivalent to `make extract-sample`.
+# Tiny wrapper around the CLI extractor. Equivalent to `uv run game-trends-extract`.
 
 set -euo pipefail
 

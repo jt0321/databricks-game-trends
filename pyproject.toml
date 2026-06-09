@@ -14,8 +14,10 @@ dependencies = [
     "requests>=2.31,<3.0",
 ]
 
-[project.optional-dependencies]
-dev = ["pytest>=7.4,<9.0"]
+[dependency-groups]
+dev = [
+    "pytest>=7.4,<9.0",
+]
 
 [project.scripts]
 game-trends-extract = "game_trends.extract_steam:main"

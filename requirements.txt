@@ -1,5 +1,0 @@
-# Runtime deps for the local CLI extractor.
-requests>=2.31,<3.0
-
-# Dev / test
-pytest>=7.4,<9.0

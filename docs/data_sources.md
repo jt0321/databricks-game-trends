@@ -41,7 +41,7 @@ The local extractor reads only optional, **non-secret** settings:
 | Variable               | Purpose                                              | Default                          |
 | ---------------------- | ---------------------------------------------------- | -------------------------------- |
 | `GAME_TRENDS_UA`       | `User-Agent` header sent to public APIs (etiquette). | `game-trend-lakehouse/0.1`       |
-| `GAME_TRENDS_SAMPLE_N` | Number of titles to pull in `make extract-sample`.   | `25`                             |
+| `GAME_TRENDS_SAMPLE_N` | Number of titles to pull in `uv run game-trends-extract`. | `25`                             |
 | `GAME_TRENDS_OUT_DIR`  | Where raw JSONL is written.                          | `data/raw`                       |
 | `TWITCH_CLIENT_ID`     | *(optional extension)* Twitch app client id.         | unset                            |
 | `TWITCH_CLIENT_SECRET` | *(optional extension)* Twitch app client secret.     | unset                            |
@@ -53,4 +53,4 @@ See `.env.example` for the local template. **No real secrets are ever committed.
 - Send a descriptive `User-Agent` so API operators can contact you if needed.
 - Sleep between requests even when the spec doesn't require it — these are free community APIs.
 - Cap batch sizes via `GAME_TRENDS_SAMPLE_N`. Mirroring the entire Steam catalog is rarely the goal; pulling a focused slice keeps iteration fast and stays well inside rate limits.
-- Cache aggressively. Re-running `make extract-sample` should not re-hit the API if `data/raw/` already has fresh files (the CLI skips when the output file is < 24 h old).
+- Cache aggressively. Re-running `uv run game-trends-extract` should not re-hit the API if `data/raw/` already has fresh files (the CLI skips when the output file is < 24 h old).

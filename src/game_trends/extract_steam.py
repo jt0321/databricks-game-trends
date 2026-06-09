@@ -8,9 +8,9 @@ trivially ingestible by the Bronze notebook. Designed to be safe and friendly:
 * caps the sample size — 25 titles by default, never more than 100
 * skips the network call entirely if a recent file already exists
 
-Run it locally with ``make extract-sample`` or:
+Run it locally with ``uv run game-trends-extract`` or:
 
-    python -m game_trends.extract_steam --limit 10
+    uv run python -m game_trends.extract_steam --limit 10
 """
 
 from __future__ import annotations
