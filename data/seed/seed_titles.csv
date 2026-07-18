@@ -1,0 +1,36 @@
+game_id,name,steam_appid,twitch_category,wikipedia_article,subreddit,trends_term,storefronts
+fortnite,Fortnite,,Fortnite,Fortnite,FortNiteBR,Fortnite,epic
+roblox,Roblox,,Roblox,Roblox,roblox,Roblox,standalone
+minecraft,Minecraft,,Minecraft,Minecraft,Minecraft,Minecraft,standalone|microsoft
+league-of-legends,League of Legends,,League of Legends,League_of_Legends,leagueoflegends,League of Legends,riot
+valorant,VALORANT,,VALORANT,Valorant,VALORANT,Valorant,riot
+genshin-impact,Genshin Impact,,Genshin Impact,Genshin_Impact,Genshin_Impact,Genshin Impact,hoyoplay|epic
+world-of-warcraft,World of Warcraft,,World of Warcraft,World_of_Warcraft,wow,World of Warcraft,battlenet
+hearthstone,Hearthstone,,Hearthstone,Hearthstone,hearthstone,Hearthstone,battlenet
+escape-from-tarkov,Escape from Tarkov,,Escape from Tarkov,Escape_from_Tarkov,EscapefromTarkov,Escape from Tarkov,standalone
+rocket-league,Rocket League,,Rocket League,Rocket_League,RocketLeague,Rocket League,epic
+fall-guys,Fall Guys,,Fall Guys,Fall_Guys,FallGuysGame,Fall Guys,epic
+counter-strike-2,Counter-Strike 2,730,Counter-Strike,Counter-Strike_2,GlobalOffensive,Counter-Strike 2,steam
+dota-2,Dota 2,570,Dota 2,Dota_2,DotA2,Dota 2,steam
+team-fortress-2,Team Fortress 2,440,Team Fortress 2,Team_Fortress_2,tf2,Team Fortress 2,steam
+pubg,PUBG: BATTLEGROUNDS,578080,PUBG: BATTLEGROUNDS,PUBG:_Battlegrounds,PUBATTLEGROUNDS,PUBG,steam
+grand-theft-auto-v,Grand Theft Auto V,271590,Grand Theft Auto V,Grand_Theft_Auto_V,GrandTheftAutoV,GTA V,steam|epic
+rust,Rust,252490,Rust,Rust_(video_game),playrust,Rust game,steam
+baldurs-gate-3,Baldur's Gate 3,1086940,Baldur's Gate 3,Baldur's_Gate_3,BaldursGate3,Baldur's Gate 3,steam|gog
+elden-ring,Elden Ring,1245620,ELDEN RING,Elden_Ring,Eldenring,Elden Ring,steam
+cyberpunk-2077,Cyberpunk 2077,1091500,Cyberpunk 2077,Cyberpunk_2077,cyberpunkgame,Cyberpunk 2077,steam|gog|epic
+stardew-valley,Stardew Valley,413150,Stardew Valley,Stardew_Valley,StardewValley,Stardew Valley,steam|gog
+terraria,Terraria,105600,Terraria,Terraria,Terraria,Terraria,steam|gog
+rainbow-six-siege,Tom Clancy's Rainbow Six Siege,359550,Tom Clancy's Rainbow Six Siege,Tom_Clancy's_Rainbow_Six_Siege,Rainbow6,Rainbow Six Siege,steam|ubisoft
+apex-legends,Apex Legends,1172470,Apex Legends,Apex_Legends,apexlegends,Apex Legends,steam|ea
+destiny-2,Destiny 2,1085660,Destiny 2,Destiny_2,DestinyTheGame,Destiny 2,steam|epic|microsoft
+path-of-exile,Path of Exile,238960,Path of Exile,Path_of_Exile,pathofexile,Path of Exile,steam|standalone
+dead-by-daylight,Dead by Daylight,381210,Dead by Daylight,Dead_by_Daylight,deadbydaylight,Dead by Daylight,steam|epic|microsoft
+helldivers-2,Helldivers 2,553850,HELLDIVERS 2,Helldivers_2,Helldivers,Helldivers 2,steam
+palworld,Palworld,1623730,Palworld,Palworld,Palworld,Palworld,steam|microsoft
+among-us,Among Us,945360,Among Us,Among_Us,AmongUs,Among Us,steam|epic
+war-thunder,War Thunder,236390,War Thunder,War_Thunder,Warthunder,War Thunder,steam|standalone
+overwatch-2,Overwatch 2,2357570,Overwatch 2,Overwatch_2,Overwatch,Overwatch 2,steam|battlenet
+diablo-4,Diablo IV,2344520,Diablo IV,Diablo_IV,diablo4,Diablo 4,steam|battlenet
+the-sims-4,The Sims 4,1222670,The Sims 4,The_Sims_4,thesims,The Sims 4,steam|ea
+marvel-rivals,Marvel Rivals,2767030,Marvel Rivals,Marvel_Rivals,marvelrivals,Marvel Rivals,steam

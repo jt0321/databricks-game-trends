@@ -64,10 +64,21 @@ flowchart LR
 
 ### Silver — `silver_titles`
 
-- **Purpose**: one row per Steam `appid`, with typed columns and derived fields.
-- **Write pattern**: `MERGE INTO ... ON appid` (idempotent upsert).
+- **Purpose**: the canonical **cross-platform title dimension** — one row per
+  `game_id`, covering both Steam titles and off-Steam PC titles (Fortnite,
+  League of Legends, …). See [`multi_platform_plan.md`](multi_platform_plan.md).
+- **Key**: `game_id`, a stable slug from the seed crosswalk
+  `data/seed/seed_titles.csv`; Steam titles outside the seed get a slugified
+  name. `steam_appid` is **nullable** — NULL marks an off-Steam title, and the
+  derived `on_steam` flag is the headline cohort split in Gold.
+- **Crosswalk columns**: `twitch_category`, `wikipedia_article`, `subreddit`,
+  `trends_term`, `storefronts` — how every other source joins to a title.
+- **Write pattern**: `MERGE INTO ... ON game_id`; identity/crosswalk columns
+  are seed-owned (batch wins), Steam-derived metadata coalesces so seed stubs
+  never clobber previously ingested payload data.
 - **Derived fields**: `release_year`, `is_free`, `supports_linux`, `supports_mac`, `supports_windows`, `primary_genre`, `genre_list`.
-- **Quality rules**: drop rows missing `appid` or `name`; cast `price_cents` to INT; coalesce empty genre lists to `["unknown"]`.
+- **Quality rules**: drop rows missing `appid` or `name` at the Steam-parse
+  stage; cast `price_cents` to INT; coalesce empty genre lists to `["unknown"]`.
 
 ### Gold — `gold_platform_trends`
 
@@ -95,7 +106,7 @@ Aggregate of `silver_titles` by `release_year` × `primary_genre`:
 
 ## Operational notes
 
-- **Idempotency**: Bronze is append-only; Silver uses MERGE on `appid`; Gold is `CREATE OR REPLACE TABLE` from Silver — re-running the full pipeline is safe.
+- **Idempotency**: Bronze is append-only; Silver uses MERGE on `game_id`; Gold is `CREATE OR REPLACE TABLE` from Silver — re-running the full pipeline is safe.
 - **Partitioning**: at meaningful scale, partition Silver and Gold by `release_year` (low cardinality, naturally filtered in dashboards).
 - **Catalog naming**: defaults to `main.game_trends.<table>`; override via notebook widgets.
 - **Lakeflow / Asset Bundle**: `resources/databricks_asset_bundle.yml` shows the three notebooks chained as tasks; promote to a Lakeflow declarative pipeline by converting the notebooks to `@dlt.table` definitions.

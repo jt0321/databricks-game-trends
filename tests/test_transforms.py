@@ -6,13 +6,20 @@ import json
 
 import pytest
 
+from pathlib import Path
+
 from game_trends.transforms import (
+    build_silver_titles,
     dedupe_silver,
     gold_genre_trends,
     gold_platform_trends,
+    load_seed_titles,
     parse_release_year,
+    slugify,
     steam_payload_to_silver,
 )
+
+SEED_CSV = Path(__file__).resolve().parent.parent / "data" / "seed" / "seed_titles.csv"
 
 
 def _wrap(appid: int, data: dict) -> str:
@@ -147,6 +154,135 @@ def test_dedupe_silver_keeps_last():
 def test_dedupe_silver_drops_rows_without_appid():
     out = dedupe_silver([{"name": "no id"}, {"appid": 1, "name": "ok"}])
     assert out == [{"appid": 1, "name": "ok"}]
+
+
+# ---------------------------------------------------------------------------
+# Seed crosswalk & canonical titles
+# ---------------------------------------------------------------------------
+
+class TestSlugify:
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("Half-Life 2", "half-life-2"),
+            ("Baldur's Gate 3", "baldur-s-gate-3"),
+            ("PUBG: BATTLEGROUNDS", "pubg-battlegrounds"),
+            ("  Rust  ", "rust"),
+            ("???", "unknown"),
+        ],
+    )
+    def test_slugs(self, name, expected):
+        assert slugify(name) == expected
+
+
+class TestLoadSeedTitles:
+    def test_parses_and_normalizes(self, tmp_path):
+        csv_path = tmp_path / "seed.csv"
+        csv_path.write_text(
+            "game_id,name,steam_appid,twitch_category,wikipedia_article,subreddit,trends_term,storefronts\n"
+            "fortnite,Fortnite,,Fortnite,Fortnite,FortNiteBR,Fortnite,epic\n"
+            "dota-2,Dota 2,570,Dota 2,Dota_2,DotA2,Dota 2,steam\n"
+            ",Missing Id,1,x,y,z,w,steam\n"
+        )
+        rows = load_seed_titles(csv_path)
+        assert [r["game_id"] for r in rows] == ["fortnite", "dota-2"]
+        fortnite, dota = rows
+        assert fortnite["steam_appid"] is None
+        assert fortnite["storefronts"] == ["epic"]
+        assert dota["steam_appid"] == 570
+
+    def test_real_seed_csv_is_valid(self):
+        rows = load_seed_titles(SEED_CSV)
+        assert len(rows) >= 30
+        ids = [r["game_id"] for r in rows]
+        assert len(ids) == len(set(ids)), "duplicate game_id in seed CSV"
+        appids = [r["steam_appid"] for r in rows if r["steam_appid"] is not None]
+        assert len(appids) == len(set(appids)), "duplicate steam_appid in seed CSV"
+        assert all(r["storefronts"] for r in rows), "every seed row needs storefronts"
+        offsteam = [r for r in rows if r["steam_appid"] is None]
+        assert len(offsteam) >= 5, "seed should cover off-Steam titles"
+        assert all(r["game_id"] == slugify(r["game_id"]) for r in rows), (
+            "game_id must be slug-shaped"
+        )
+
+
+class TestBuildSilverTitles:
+    SEED = [
+        {
+            "game_id": "fortnite",
+            "name": "Fortnite",
+            "steam_appid": None,
+            "twitch_category": "Fortnite",
+            "wikipedia_article": "Fortnite",
+            "subreddit": "FortNiteBR",
+            "trends_term": "Fortnite",
+            "storefronts": ["epic"],
+        },
+        {
+            "game_id": "dota-2",
+            "name": "Dota 2",
+            "steam_appid": 570,
+            "twitch_category": "Dota 2",
+            "wikipedia_article": "Dota_2",
+            "subreddit": "DotA2",
+            "trends_term": "Dota 2",
+            "storefronts": ["steam"],
+        },
+    ]
+
+    STEAM_DOTA = {
+        "appid": 570,
+        "name": "Dota 2",
+        "release_year": 2013,
+        "is_free": True,
+        "price_cents": 0,
+        "supports_windows": True,
+        "supports_mac": True,
+        "supports_linux": True,
+        "primary_genre": "MOBA",
+        "genre_list": ["MOBA"],
+    }
+
+    def test_seeded_steam_title_gets_seed_identity(self):
+        out = build_silver_titles([self.STEAM_DOTA], self.SEED)
+        dota = next(r for r in out if r["game_id"] == "dota-2")
+        assert dota["steam_appid"] == 570
+        assert dota["on_steam"] is True
+        assert dota["release_year"] == 2013
+        assert dota["subreddit"] == "DotA2"
+
+    def test_offsteam_seed_title_gets_stub_row(self):
+        out = build_silver_titles([self.STEAM_DOTA], self.SEED)
+        fortnite = next(r for r in out if r["game_id"] == "fortnite")
+        assert fortnite["steam_appid"] is None
+        assert fortnite["on_steam"] is False
+        assert fortnite["storefronts"] == ["epic"]
+        assert fortnite["release_year"] is None
+        assert fortnite["supports_windows"] is True  # PC-only universe
+        assert fortnite["wikipedia_article"] == "Fortnite"
+
+    def test_seeded_steam_title_without_payload_still_present(self):
+        out = build_silver_titles([], self.SEED)
+        dota = next(r for r in out if r["game_id"] == "dota-2")
+        assert dota["on_steam"] is True
+        assert dota["steam_appid"] == 570
+        assert dota["release_year"] is None
+
+    def test_unseeded_steam_title_gets_slug_and_name_defaults(self):
+        row = dict(self.STEAM_DOTA, appid=999, name="Some Indie Game")
+        out = build_silver_titles([row], self.SEED)
+        indie = next(r for r in out if r["game_id"] == "some-indie-game")
+        assert indie["on_steam"] is True
+        assert indie["storefronts"] == ["steam"]
+        assert indie["twitch_category"] == "Some Indie Game"
+        assert indie["trends_term"] == "Some Indie Game"
+        assert indie["wikipedia_article"] is None
+
+    def test_output_sorted_and_unique_by_game_id(self):
+        out = build_silver_titles([self.STEAM_DOTA], self.SEED)
+        ids = [r["game_id"] for r in out]
+        assert ids == sorted(ids)
+        assert len(ids) == len(set(ids))
 
 
 # ---------------------------------------------------------------------------

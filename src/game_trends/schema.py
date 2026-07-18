@@ -7,8 +7,27 @@ PySpark StructType objects).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+
+# ---------------------------------------------------------------------------
+# Seed crosswalk (data/seed/seed_titles.csv)
+# ---------------------------------------------------------------------------
+
+# The curated title universe. `game_id` is the canonical key everywhere; the
+# remaining columns map each title to its ID in every tracked source. A blank
+# `steam_appid` marks an off-Steam title.
+SEED_COLUMNS: list[tuple[str, str]] = [
+    ("game_id", "string"),
+    ("name", "string"),
+    ("steam_appid", "long"),
+    ("twitch_category", "string"),
+    ("wikipedia_article", "string"),
+    ("subreddit", "string"),
+    ("trends_term", "string"),
+    ("storefronts", "array<string>"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -27,9 +46,15 @@ BRONZE_COLUMNS: list[tuple[str, str]] = [
 # Silver
 # ---------------------------------------------------------------------------
 
+# Keyed by `game_id`, not `steam_appid`: the dimension covers off-Steam titles,
+# for which `steam_appid` is NULL and Steam-derived metadata columns stay NULL
+# until another source (e.g. IGDB) fills them.
 SILVER_COLUMNS: list[tuple[str, str]] = [
-    ("appid", "long"),
+    ("game_id", "string"),
     ("name", "string"),
+    ("steam_appid", "long"),
+    ("on_steam", "boolean"),
+    ("storefronts", "array<string>"),
     ("release_year", "int"),
     ("is_free", "boolean"),
     ("price_cents", "int"),
@@ -38,6 +63,10 @@ SILVER_COLUMNS: list[tuple[str, str]] = [
     ("supports_linux", "boolean"),
     ("primary_genre", "string"),
     ("genre_list", "array<string>"),
+    ("twitch_category", "string"),
+    ("wikipedia_article", "string"),
+    ("subreddit", "string"),
+    ("trends_term", "string"),
     ("source", "string"),
     ("ingested_at", "timestamp"),
 ]
@@ -47,21 +76,31 @@ SILVER_COLUMNS: list[tuple[str, str]] = [
 class SilverTitle:
     """One canonical row in `silver_titles`."""
 
-    appid: int
+    game_id: str
     name: str
+    steam_appid: int | None
+    on_steam: bool
+    storefronts: list[str]
     release_year: int | None
-    is_free: bool
-    price_cents: int
-    supports_windows: bool
-    supports_mac: bool
-    supports_linux: bool
-    primary_genre: str
-    genre_list: list[str]
+    is_free: bool | None
+    price_cents: int | None
+    supports_windows: bool | None
+    supports_mac: bool | None
+    supports_linux: bool | None
+    primary_genre: str | None
+    genre_list: list[str] = field(default_factory=list)
+    twitch_category: str | None = None
+    wikipedia_article: str | None = None
+    subreddit: str | None = None
+    trends_term: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "appid": self.appid,
+            "game_id": self.game_id,
             "name": self.name,
+            "steam_appid": self.steam_appid,
+            "on_steam": self.on_steam,
+            "storefronts": list(self.storefronts),
             "release_year": self.release_year,
             "is_free": self.is_free,
             "price_cents": self.price_cents,
@@ -70,6 +109,10 @@ class SilverTitle:
             "supports_linux": self.supports_linux,
             "primary_genre": self.primary_genre,
             "genre_list": list(self.genre_list),
+            "twitch_category": self.twitch_category,
+            "wikipedia_article": self.wikipedia_article,
+            "subreddit": self.subreddit,
+            "trends_term": self.trends_term,
         }
 
 
