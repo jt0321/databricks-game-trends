@@ -14,6 +14,13 @@ dependencies = [
     "requests>=2.31,<3.0",
 ]
 
+[project.optional-dependencies]
+# Only needed for `game-trends-backfill --sources trends`; Google Trends has
+# no official API, so this pulls in the unofficial `pytrends` client.
+# Imported lazily (see extract_backfill.backfill_google_trends) so the rest
+# of the pipeline — including the full test suite — never requires it.
+trends = ["pytrends>=4.9,<5.0"]
+
 [dependency-groups]
 dev = [
     "pytest>=7.4,<9.0",
@@ -22,6 +29,8 @@ dev = [
 [project.scripts]
 game-trends-extract = "game_trends.extract_steam:main"
 game-trends-extract-engagement = "game_trends.extract_engagement:main"
+game-trends-extract-estimates = "game_trends.extract_estimates:main"
+game-trends-backfill = "game_trends.extract_backfill:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

@@ -6,18 +6,29 @@ import json
 
 import pytest
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from game_trends.transforms import (
     build_engagement_daily,
+    build_reviews_silver,
+    build_sales_estimates,
     build_silver_titles,
     dedupe_silver,
+    gamalytic_payload_to_estimate,
+    gold_attention_trends,
     gold_genre_trends,
     gold_platform_trends,
+    gold_revenue_engagement,
+    gold_steam_vs_offsteam,
+    gold_title_monthly,
     load_seed_titles,
     parse_release_year,
+    reviews_daily_from_silver,
     slugify,
     steam_payload_to_silver,
+    steam_review_payload_to_rows,
+    steamspy_snapshot_to_estimate,
     summarize_twitch_streams,
 )
 
@@ -412,6 +423,364 @@ class TestBuildEngagementDaily:
         out = build_engagement_daily(rows, self.SEED)
         assert out[0]["date"] == "2026-07-18"
         assert out[0]["steam_ccu_peak"] == 42
+
+
+# ---------------------------------------------------------------------------
+# Wikipedia / Trends / Reddit rollup (via build_engagement_daily)
+# ---------------------------------------------------------------------------
+
+class TestBuildEngagementDailyExtraSources:
+    SEED = [
+        {"game_id": "fortnite", "steam_appid": None, "wikipedia_article": "Fortnite", "trends_term": "Fortnite", "subreddit": "FortNiteBR"},
+        {"game_id": "dota-2", "steam_appid": 570, "wikipedia_article": "Dota_2", "trends_term": "Dota 2", "subreddit": "DotA2"},
+    ]
+
+    def test_wikipedia_pageviews(self):
+        rows = [
+            {"source": "wikipedia_pageviews", "entity_key": "Fortnite", "extract_date": "2024-01-01", "payload": {"views": 50000}},
+        ]
+        out = build_engagement_daily(rows, self.SEED)
+        assert out == [{"game_id": "fortnite", "date": "2024-01-01", "wiki_pageviews": 50000}]
+
+    def test_google_trends_averages_repeated_daily_rows(self):
+        rows = [
+            {"source": "google_trends", "entity_key": "Fortnite", "extract_date": "2024-01-01", "payload": {"trends_index": 80.0}},
+        ]
+        out = build_engagement_daily(rows, self.SEED)
+        assert out == [{"game_id": "fortnite", "date": "2024-01-01", "trends_index": 80.0}]
+
+    def test_reddit_subscribers_and_posts(self):
+        rows = [
+            {"source": "reddit", "entity_key": "DotA2", "extract_date": "2024-01-01", "payload": {"subscribers": 900_000, "posts_today": 42}},
+        ]
+        out = build_engagement_daily(rows, self.SEED)
+        assert out == [
+            {
+                "game_id": "dota-2",
+                "date": "2024-01-01",
+                "reddit_subscribers": 900_000,
+                "reddit_posts": 42,
+            }
+        ]
+
+    def test_unknown_wiki_article_and_bad_types_skipped(self):
+        rows = [
+            {"source": "wikipedia_pageviews", "entity_key": "Some_Other_Wiki_Page", "extract_date": "2024-01-01", "payload": {"views": 1}},
+            {"source": "google_trends", "entity_key": "Fortnite", "extract_date": "2024-01-01", "payload": {"trends_index": "n/a"}},
+            {"source": "reddit", "entity_key": "unknownsubreddit", "extract_date": "2024-01-01", "payload": {"subscribers": 1}},
+        ]
+        assert build_engagement_daily(rows, self.SEED) == []
+
+    def test_all_sources_merge_into_one_row_per_game_day(self):
+        rows = [
+            {"source": "wikipedia_pageviews", "entity_key": "Fortnite", "extract_date": "2024-01-01", "payload": {"views": 10_000}},
+            {"source": "google_trends", "entity_key": "Fortnite", "extract_date": "2024-01-01", "payload": {"trends_index": 90.0}},
+            {"source": "reddit", "entity_key": "FortNiteBR", "extract_date": "2024-01-01", "payload": {"subscribers": 2_000_000, "posts_today": 10}},
+        ]
+        out = build_engagement_daily(rows, self.SEED)
+        assert len(out) == 1
+        row = out[0]
+        assert row["wiki_pageviews"] == 10_000
+        assert row["trends_index"] == 90.0
+        assert row["reddit_subscribers"] == 2_000_000
+        assert row["reddit_posts"] == 10
+
+
+# ---------------------------------------------------------------------------
+# Steam reviews
+# ---------------------------------------------------------------------------
+
+class TestSteamReviewPayloadToRows:
+    def _page(self, reviews):
+        return {"success": 1, "query_summary": {}, "reviews": reviews, "cursor": "*"}
+
+    def test_parses_reviews(self):
+        payload = self._page(
+            [
+                {
+                    "recommendationid": "123",
+                    "timestamp_created": 1700000000,
+                    "voted_up": True,
+                    "language": "english",
+                    "received_for_free": False,
+                    "author": {"playtime_at_review": 340},
+                }
+            ]
+        )
+        out = steam_review_payload_to_rows(payload)
+        assert out == [
+            {
+                "review_id": "123",
+                "review_ts": 1700000000,
+                "voted_up": True,
+                "playtime_at_review_min": 340,
+                "language": "english",
+                "received_free": False,
+            }
+        ]
+
+    def test_unsuccessful_page_returns_empty(self):
+        assert steam_review_payload_to_rows({"success": 0}) == []
+
+    def test_malformed_json_returns_empty(self):
+        assert steam_review_payload_to_rows("{not json") == []
+
+    def test_review_missing_id_or_timestamp_skipped(self):
+        payload = self._page([{"voted_up": True}, {"recommendationid": "1"}])
+        assert steam_review_payload_to_rows(payload) == []
+
+
+class TestBuildReviewsSilver:
+    SEED = [{"game_id": "dota-2", "steam_appid": 570}]
+
+    def _bronze_page(self, appid, date, reviews, ts_base=1_700_000_000):
+        return {
+            "source": "steam_reviews",
+            "entity_key": str(appid),
+            "extract_date": date,
+            "payload": {
+                "success": 1,
+                "reviews": [
+                    {
+                        "recommendationid": str(rid),
+                        "timestamp_created": ts_base,
+                        "voted_up": voted_up,
+                        "author": {"playtime_at_review": 100},
+                    }
+                    for rid, voted_up in reviews
+                ],
+            },
+        }
+
+    def test_maps_to_game_id_and_filters_history_start(self):
+        old_ts = int(datetime(2019, 1, 1, tzinfo=timezone.utc).timestamp())
+        recent_ts = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp())
+        rows = [
+            {
+                "source": "steam_reviews",
+                "entity_key": "570",
+                "extract_date": "2024-01-01",
+                "payload": {
+                    "success": 1,
+                    "reviews": [
+                        {"recommendationid": "old", "timestamp_created": old_ts, "voted_up": True},
+                        {"recommendationid": "new", "timestamp_created": recent_ts, "voted_up": False},
+                    ],
+                },
+            }
+        ]
+        out = build_reviews_silver(rows, self.SEED)
+        assert [r["review_id"] for r in out] == ["new"]
+        assert out[0]["game_id"] == "dota-2"
+
+    def test_dedupes_overlapping_backfill_pages(self):
+        rows = [
+            self._bronze_page(570, "2024-01-01", [("1", True), ("2", False)]),
+            self._bronze_page(570, "2024-01-02", [("2", False), ("3", True)]),  # "2" overlaps
+        ]
+        out = build_reviews_silver(rows, self.SEED)
+        assert sorted(r["review_id"] for r in out) == ["1", "2", "3"]
+
+    def test_unseeded_appid_skipped(self):
+        rows = [self._bronze_page(99999, "2024-01-01", [("1", True)])]
+        assert build_reviews_silver(rows, self.SEED) == []
+
+
+class TestReviewsDailyFromSilver:
+    def test_counts_and_positive_share(self):
+        reviews = [
+            {"game_id": "dota-2", "review_ts": int(datetime(2024, 3, 1, 12, tzinfo=timezone.utc).timestamp()), "voted_up": True},
+            {"game_id": "dota-2", "review_ts": int(datetime(2024, 3, 1, 18, tzinfo=timezone.utc).timestamp()), "voted_up": True},
+            {"game_id": "dota-2", "review_ts": int(datetime(2024, 3, 1, 20, tzinfo=timezone.utc).timestamp()), "voted_up": False},
+        ]
+        out = reviews_daily_from_silver(reviews)
+        assert out == [
+            {
+                "game_id": "dota-2",
+                "date": "2024-03-01",
+                "reviews_posted": 3,
+                "reviews_positive_share": pytest.approx(2 / 3, rel=1e-3),
+            }
+        ]
+
+    def test_splits_by_date(self):
+        reviews = [
+            {"game_id": "g", "review_ts": int(datetime(2024, 3, 1, tzinfo=timezone.utc).timestamp()), "voted_up": True},
+            {"game_id": "g", "review_ts": int(datetime(2024, 3, 2, tzinfo=timezone.utc).timestamp()), "voted_up": True},
+        ]
+        out = reviews_daily_from_silver(reviews)
+        assert [r["date"] for r in out] == ["2024-03-01", "2024-03-02"]
+
+
+# ---------------------------------------------------------------------------
+# Sales estimates
+# ---------------------------------------------------------------------------
+
+class TestSteamspySnapshotToEstimate:
+    def test_parses_owners_range(self):
+        payload = {"owners": "10,000,000 .. 20,000,000"}
+        out = steamspy_snapshot_to_estimate(payload, "dota-2", "2024-01-01")
+        assert out == {
+            "game_id": "dota-2",
+            "snapshot_date": "2024-01-01",
+            "est_owners_low": 10_000_000,
+            "est_owners_high": 20_000_000,
+            "est_units_lifetime": None,
+            "est_revenue_lifetime_usd": None,
+            "est_source": "steamspy",
+        }
+
+    def test_missing_owners_returns_none(self):
+        assert steamspy_snapshot_to_estimate({}, "dota-2", "2024-01-01") is None
+
+    def test_malformed_payload_returns_none(self):
+        assert steamspy_snapshot_to_estimate("{not json", "dota-2", "2024-01-01") is None
+
+
+class TestGamalyticPayloadToEstimate:
+    def test_parses_revenue_and_units(self):
+        payload = {"revenue": 1_200_000_000.0, "copiesSold": 50_000_000}
+        out = gamalytic_payload_to_estimate(payload, "dota-2", "2024-06-01")
+        assert out["est_revenue_lifetime_usd"] == 1_200_000_000.0
+        assert out["est_units_lifetime"] == 50_000_000
+        assert out["est_source"] == "gamalytic"
+
+    def test_missing_fields_returns_none(self):
+        assert gamalytic_payload_to_estimate({"price": 999}, "dota-2", "2024-01-01") is None
+
+
+class TestBuildSalesEstimates:
+    SEED = [{"game_id": "dota-2", "steam_appid": 570}]
+
+    def test_combines_both_sources(self):
+        rows = [
+            {"source": "steamspy_snapshot", "entity_key": "570", "extract_date": "2024-01-01", "payload": {"owners": "1,000 .. 2,000"}},
+            {"source": "gamalytic", "entity_key": "570", "extract_date": "2024-06-01", "payload": {"revenue": 500.0}},
+            {"source": "twitch_helix", "entity_key": "570", "extract_date": "2024-01-01", "payload": {"viewers": 1}},
+        ]
+        out = build_sales_estimates(rows, self.SEED)
+        sources = {r["est_source"] for r in out}
+        assert sources == {"steamspy", "gamalytic"}
+
+    def test_unseeded_appid_skipped(self):
+        rows = [{"source": "gamalytic", "entity_key": "99999", "extract_date": "2024-01-01", "payload": {"revenue": 1}}]
+        assert build_sales_estimates(rows, self.SEED) == []
+
+
+# ---------------------------------------------------------------------------
+# Cross-platform Gold: attention, cohort split, leaderboard, revenue
+# ---------------------------------------------------------------------------
+
+def _engagement_row(game_id, date, **kwargs):
+    row = {"game_id": game_id, "date": date}
+    row.update(kwargs)
+    return row
+
+
+class TestGoldAttentionTrends:
+    def test_first_week_has_null_index_then_fills_in(self):
+        rows = [
+            _engagement_row("fortnite", "2024-01-01", twitch_avg_viewers=100_000),  # week of 2024-01-01 (Mon)
+            _engagement_row("fortnite", "2024-01-08", twitch_avg_viewers=200_000),  # next week
+        ]
+        out = gold_attention_trends(rows, baseline_weeks=13)
+        assert out[0]["twitch_idx"] is None  # no prior baseline yet
+        assert out[0]["attention_index"] is None
+        assert out[1]["twitch_idx"] == pytest.approx(200.0)  # 200k / 100k baseline * 100
+        assert out[1]["attention_index"] == pytest.approx(200.0)
+
+    def test_wow_delta_computed_between_indexed_weeks(self):
+        rows = [
+            _engagement_row("g", "2024-01-01", twitch_avg_viewers=100),
+            _engagement_row("g", "2024-01-08", twitch_avg_viewers=200),
+            _engagement_row("g", "2024-01-15", twitch_avg_viewers=100),
+        ]
+        out = gold_attention_trends(rows)
+        # week 2: idx=200 (vs baseline 100), week 3: baseline avg(100,200)=150, idx=100/150*100=66.67
+        assert out[1]["attention_index"] == pytest.approx(200.0)
+        assert out[2]["attention_index"] == pytest.approx(66.67, rel=1e-3)
+        assert out[2]["attention_wow_delta"] == pytest.approx(66.67 - 200.0, rel=1e-3)
+
+    def test_sums_wiki_pageviews_within_week(self):
+        rows = [
+            _engagement_row("g", "2024-01-01", wiki_pageviews=1000),
+            _engagement_row("g", "2024-01-02", wiki_pageviews=500),
+        ]
+        out = gold_attention_trends(rows)
+        assert out[0]["wiki_pageviews"] == 1500
+
+    def test_empty_input(self):
+        assert gold_attention_trends([]) == []
+
+
+class TestGoldSteamVsOffsteam:
+    TITLES = [
+        {"game_id": "fortnite", "on_steam": False},
+        {"game_id": "dota-2", "on_steam": True},
+    ]
+
+    def test_computes_shares_and_title_counts(self):
+        rows = [
+            _engagement_row("fortnite", "2024-01-01", twitch_avg_viewers=300, wiki_pageviews=100),
+            _engagement_row("dota-2", "2024-01-01", twitch_avg_viewers=100, wiki_pageviews=100),
+        ]
+        out = gold_steam_vs_offsteam(self.TITLES, rows)
+        by_cohort = {r["cohort"]: r for r in out}
+        assert by_cohort["off_steam"]["title_count"] == 1
+        assert by_cohort["off_steam"]["twitch_viewer_share"] == pytest.approx(0.75)
+        assert by_cohort["on_steam"]["twitch_viewer_share"] == pytest.approx(0.25)
+        assert by_cohort["off_steam"]["wiki_pageview_share"] == pytest.approx(0.5)
+
+    def test_zero_totals_yield_null_shares(self):
+        out = gold_steam_vs_offsteam(self.TITLES, [])
+        assert out == []
+
+
+class TestGoldTitleMonthly:
+    def test_ranks_by_avg_viewers_and_tracks_rank_delta(self):
+        rows = [
+            _engagement_row("a", "2024-01-05", twitch_avg_viewers=100, reviews_posted=2),
+            _engagement_row("b", "2024-01-05", twitch_avg_viewers=200, reviews_posted=1),
+            _engagement_row("a", "2024-02-05", twitch_avg_viewers=300, reviews_posted=3),
+            _engagement_row("b", "2024-02-05", twitch_avg_viewers=100, reviews_posted=0),
+        ]
+        out = gold_title_monthly(rows)
+        by_key = {(r["game_id"], r["month"]): r for r in out}
+        assert by_key[("a", "2024-01-01")]["rank"] == 2
+        assert by_key[("b", "2024-01-01")]["rank"] == 1
+        assert by_key[("a", "2024-02-01")]["rank"] == 1
+        assert by_key[("a", "2024-02-01")]["rank_delta"] == 1  # moved up from 2nd to 1st
+        assert by_key[("a", "2024-02-01")]["reviews_posted"] == 3
+
+    def test_attaches_latest_revenue_snapshot(self):
+        rows = [_engagement_row("a", "2024-01-05", twitch_avg_viewers=100)]
+        estimates = [
+            {"game_id": "a", "snapshot_date": "2024-01-01", "est_revenue_lifetime_usd": 100.0},
+            {"game_id": "a", "snapshot_date": "2024-06-01", "est_revenue_lifetime_usd": 500.0},
+        ]
+        out = gold_title_monthly(rows, estimates)
+        assert out[0]["est_revenue_snapshot"] == 500.0
+
+
+class TestGoldRevenueEngagement:
+    TITLES = [{"game_id": "dota-2", "on_steam": True}, {"game_id": "fortnite", "on_steam": False}]
+
+    def test_only_includes_steam_titles_and_computes_ratio(self):
+        rows = [
+            _engagement_row("dota-2", "2024-01-05", twitch_avg_viewers=100),
+            _engagement_row("fortnite", "2024-01-05", twitch_avg_viewers=1000),
+        ]
+        estimates = [
+            {"game_id": "dota-2", "snapshot_date": "2024-01-01", "est_revenue_lifetime_usd": 1000.0, "est_units_lifetime": 10},
+        ]
+        out = gold_revenue_engagement(self.TITLES, rows, estimates)
+        assert [r["game_id"] for r in out] == ["dota-2"]
+        assert out[0]["revenue_per_avg_viewer"] == pytest.approx(10.0)
+
+    def test_missing_revenue_yields_null_ratio(self):
+        rows = [_engagement_row("dota-2", "2024-01-05", twitch_avg_viewers=100)]
+        out = gold_revenue_engagement(self.TITLES, rows, [])
+        assert out[0]["revenue_per_avg_viewer"] is None
 
 
 # ---------------------------------------------------------------------------

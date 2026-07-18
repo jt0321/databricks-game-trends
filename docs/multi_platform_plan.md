@@ -8,6 +8,25 @@ attention/engagement signals (Twitch, Wikipedia, Google Trends, Reddit) are
 non-Steam titles. Steam-only metrics (CCU, reviews, sales estimates) then
 enrich the Steam subset.
 
+## Status
+
+Sequencing steps 1-3 and 5 below are **implemented** — the seed crosswalk,
+cross-platform `silver_titles`, `silver_engagement_daily` covering all five
+snapshot-shaped sources (Twitch, CCU, Wikipedia, Trends, Reddit), the three
+2020+ backfills, `silver_reviews`, `silver_sales_estimates`, and all four new
+Gold tables (`gold_attention_trends`, `gold_steam_vs_offsteam`,
+`gold_title_monthly`, `gold_revenue_engagement`). See
+`src/game_trends/transforms.py`, `extract_engagement.py`,
+`extract_backfill.py`, `extract_estimates.py`, and notebooks `05`-`07`.
+
+**Deliberately deferred** (step 4's remaining half): IGDB metadata
+enrichment and Steam global achievement percentages. Both are secondary,
+metadata-polish sources — the seed CSV's manually curated `storefronts`
+column already covers what Gold needs for the Steam-vs-off-Steam split, and
+achievement completion isn't wired into any Gold table's grain. Worth
+revisiting if the seed universe grows past hand-curation size (IGDB) or if a
+"how far do players get" metric becomes a real question (achievements).
+
 ## Scope decisions
 
 - **PC only.** Consoles are out: Sony/Microsoft publish no player data, and
@@ -27,20 +46,21 @@ enrich the Steam subset.
 `source` values in Bronze. **B** = backfillable to 2020, **F** = forward-only
 snapshots (history accrues as the pipeline runs).
 
-| source | B/F | What it provides | Coverage | Auth |
-| --- | --- | --- | --- | --- |
-| `steam_store` *(existing)* | F | Title metadata, genres, price, OS | Steam only | none |
-| `steamspy` *(existing)* | F | Owner tiers, tags, avg/median playtime | Steam only | none |
-| `igdb` | F | Cross-store metadata: platforms, storefronts, release dates, genres | **All PC titles** | Twitch dev app |
-| `seed_titles` | — | Curated crosswalk CSV: `game_id` ↔ per-source IDs | All tracked titles | n/a (in repo) |
-| `twitch_helix` | F | Viewers **and channel counts** per game (poll snapshots) | **All titles** | Twitch dev app |
-| `wikipedia_pageviews` | **B** | Daily article views (official REST API, data since 2015) | **All titles** | none |
-| `google_trends` | **B** | Weekly relative search interest (2004+) | **All titles** | none (pytrends) |
-| `reddit` | F | Subreddit subscribers + recent post volume | **All titles** | Reddit app |
-| `steam_reviews` | **B** | Every review with timestamp, vote, and author playtime-at-review (2013+; filtered to ≥ 2020) | Steam only | none |
-| `steam_ccu` | F | Official current concurrent players | Steam only | none |
-| `steam_achievements` | F | Global achievement completion % | Steam only | none |
-| `gamalytic` | **B** (lifetime) | Sales/revenue estimates: lifetime totals any age, time series accruing | Steam only | free API key |
+| source | B/F | What it provides | Coverage | Auth | Status |
+| --- | --- | --- | --- | --- | --- |
+| `steam_store` *(existing)* | F | Title metadata, genres, price, OS | Steam only | none | ✅ |
+| `steamspy` *(existing)* | F | Owner tiers, tags, avg/median playtime (bulk top-100 list) | Steam only | none | ✅ |
+| `igdb` | F | Cross-store metadata: platforms, storefronts, release dates, genres | **All PC titles** | Twitch dev app | ⏳ deferred |
+| `seed_titles` | — | Curated crosswalk CSV: `game_id` ↔ per-source IDs | All tracked titles | n/a (in repo) | ✅ |
+| `twitch_helix` | F | Viewers **and channel counts** per game (poll snapshots) | **All titles** | Twitch dev app | ✅ |
+| `wikipedia_pageviews` | **B** | Daily article views (official REST API, data since 2015) | **All titles** | none | ✅ |
+| `google_trends` | **B** | Weekly relative search interest (2004+) | **All titles** | none (pytrends, optional dep) | ✅ |
+| `reddit` | F | Subreddit subscribers + same-day post count (capped page) | **All titles** | Reddit app | ✅ |
+| `steam_reviews` | **B** | Every review with timestamp, vote, and author playtime-at-review (2013+; filtered to ≥ 2020) | Steam only | none | ✅ |
+| `steam_ccu` | F | Official current concurrent players | Steam only | none | ✅ |
+| `steam_achievements` | F | Global achievement completion % | Steam only | none | ⏳ deferred |
+| `steamspy_snapshot` | F | Per-title owner-tier estimate (`appdetails`, distinct from the bulk `steamspy` source) | Steam only | none | ✅ |
+| `gamalytic` | **B** (lifetime) | Sales/revenue estimates: lifetime totals any age, time series accruing | Steam only | free API key | ✅ |
 
 Deliberately excluded: SteamCharts/SteamDB/SullyGnome backfills (no APIs,
 scraping-only, terms-of-service friction — revisit only if a 2020–now CCU
@@ -50,13 +70,16 @@ Reddit dumps (bulk-heavy; forward-only Reddit polling is enough).
 ### Source caveats
 
 - **Google Trends is a relative index** (0–100 within each request). Every
-  batch must include a fixed anchor term (e.g. `"Minecraft"`) and be rescaled
-  against it before landing, or values are incomparable across batches.
+  batch queries a fixed anchor term (`TRENDS_ANCHOR_TERM = "video game"` in
+  `extract_backfill.py`) and rescales `term / anchor * 100` against it before
+  landing, or values would be incomparable across batches.
 - **Twitch daily rollups are snapshot averages.** Fidelity depends on poll
   cadence (target: hourly job; minimum viable: a few polls/day). Store raw
   snapshots in Bronze; compute avg/peak at Silver.
-- **Reddit post volume** is paginate-backwards-limited (~1000 posts); treat as
-  forward-accumulating like Twitch.
+- **Reddit post volume** is a capped single page of `/new` (100 posts)
+  counted against the current UTC day — undercounts extremely high-volume
+  subreddits rather than paginating exhaustively, same tradeoff as the
+  Twitch stream-page cap. Forward-accumulating like Twitch/CCU.
 - **Gamalytic accuracy**: estimates, ~77% within ±30%. Always labeled
   `est_` in Silver/Gold.
 
@@ -179,11 +202,13 @@ of PC gaming attention the Steam catalog alone would miss.
 Grain: `game_id` × `month`: rank per signal, rank deltas vs prior month,
 `reviews_posted`, `est_revenue_snapshot`. Backs the "top movers" dashboard.
 
-### `gold_genre_trends` *(existing, extended)*
+### `gold_genre_trends` *(existing — engagement extension deferred)*
 
-Add engagement: `twitch_avg_viewers_sum`, `wiki_pageviews_sum` per
-`release_year` × `primary_genre`, alongside the existing release-count
-columns. Off-Steam titles now contribute via IGDB genres.
+Originally planned: add `twitch_avg_viewers_sum` / `wiki_pageviews_sum` per
+`release_year` × `primary_genre`. **Deferred alongside IGDB** — off-Steam
+titles have no `release_year` or `primary_genre` without IGDB metadata (the
+seed CSV doesn't carry genre), so this extension isn't meaningful until IGDB
+lands. `gold_genre_trends` is unchanged for now.
 
 ### `gold_revenue_engagement` — *Steam subset*
 
@@ -192,19 +217,40 @@ Grain: `game_id` × `month`: `est_revenue_lifetime_usd` (latest snapshot),
 `revenue_per_avg_viewer` — do viewership spikes coincide with estimated sales
 movement? All `est_` columns clearly estimate-labeled for Genie.
 
-## Pipeline shape
+## Pipeline shape (as built)
+
+CLI extractors write JSONL to `data/raw/`; `01_ingest_steam.py` appends
+whatever's there to Bronze regardless of source (the landing contract is
+source-agnostic), so no new ingest notebook was needed for the new sources.
 
 ```
-00_backfill_history      one-time-ish: steam_reviews (≥2020), wikipedia_pageviews (≥2020),
-                         google_trends (≥2020), gamalytic lifetime      → Bronze
-01_ingest_snapshots      scheduled (hourly for twitch/ccu; daily rest):
-                         steam_store, steamspy, igdb, twitch_helix,
-                         steam_ccu, steam_achievements, reddit, gamalytic → Bronze
-02_bronze_to_silver      MERGE into silver_titles / silver_engagement_daily /
-                         silver_reviews / silver_sales_estimates
-03_gold_metrics          CREATE OR REPLACE the five gold tables
-04_genie_demo_questions  updated question set (below)
+CLI (one-time-ish, re-runnable):
+  uv run game-trends-backfill              steam_reviews / wikipedia_pageviews /
+                                            google_trends (≥ HISTORY_START)   → Bronze
+
+CLI (scheduled — hourly for twitch/ccu, daily for the rest):
+  uv run game-trends-extract               steam_store, steamspy (bulk)      → Bronze
+  uv run game-trends-extract-engagement    twitch_helix, steam_ccu, reddit   → Bronze
+  uv run game-trends-extract-estimates     steamspy_snapshot, gamalytic      → Bronze
+
+Notebooks:
+  01_ingest_steam                 land data/raw/*.jsonl                     → Bronze
+  02_bronze_to_silver              MERGE                                     → silver_titles
+  05_engagement_to_silver          MERGE (twitch/ccu/wiki/trends/reddit cols) → silver_engagement_daily
+  06_reviews_and_estimates_to_silver  dedupe/MERGE + daily rollup            → silver_reviews,
+                                                                                silver_sales_estimates,
+                                                                                silver_engagement_daily (reviews cols)
+  03_gold_metrics                  CREATE OR REPLACE                        → gold_platform_trends,
+                                                                                gold_genre_trends
+  07_gold_engagement_metrics       CREATE OR REPLACE                        → gold_attention_trends,
+                                                                                gold_steam_vs_offsteam,
+                                                                                gold_title_monthly,
+                                                                                gold_revenue_engagement
+  04_genie_demo_questions          Q1-Q11
 ```
+
+`05` and `06` own disjoint columns of `silver_engagement_daily` and can run
+in either order. `07` should run after both.
 
 Backfill jobs are idempotent and re-runnable (MERGE on natural keys), so
 "one-time" really means "run until the 2020→now window is filled, re-run
@@ -224,13 +270,16 @@ freely."
 
 ## Sequencing
 
-1. **Seed CSV + `silver_titles` rework** — everything joins through
+1. ✅ **Seed CSV + `silver_titles` rework** — everything joins through
    `game_id`; nothing else can land first.
-2. **Twitch Helix promoted from optional to core** + `silver_engagement_daily`
+2. ✅ **Twitch Helix promoted from optional to core** + `silver_engagement_daily`
    with Twitch + Steam CCU columns — first cross-platform Gold becomes
    possible.
-3. **Backfills**: steam_reviews, wikipedia_pageviews, google_trends — Gold
+3. ✅ **Backfills**: steam_reviews, wikipedia_pageviews, google_trends — Gold
    gets 2020+ depth immediately.
-4. **IGDB + Reddit + Gamalytic + achievements** — dimension quality, sales
-   estimates, remaining signals.
-5. **Gold rebuild + Genie question refresh.**
+4. ⏳ **IGDB + achievements** — dimension quality, remaining signals.
+   Reddit and Gamalytic (originally grouped here) are done; IGDB and
+   achievement percentages are deferred — see Status above.
+5. ✅ **Gold rebuild + Genie question refresh** — `gold_attention_trends`,
+   `gold_steam_vs_offsteam`, `gold_title_monthly`, `gold_revenue_engagement`,
+   and `notebooks/04_genie_demo_questions.sql` Q7-Q11.

@@ -10,6 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+# Backfillable sources are loaded from this date forward; snapshot-only
+# sources (Twitch, Steam CCU, Reddit) simply accrue history from whenever the
+# pipeline first runs. See docs/multi_platform_plan.md.
+HISTORY_START = "2020-01-01"
+
 
 # ---------------------------------------------------------------------------
 # Seed crosswalk (data/seed/seed_titles.csv)
@@ -147,6 +152,38 @@ SILVER_ENGAGEMENT_COLUMNS: list[tuple[str, str]] = [
 
 
 # ---------------------------------------------------------------------------
+# Silver — review-level and sales-estimate tables (Steam subset)
+# ---------------------------------------------------------------------------
+
+# Grain: one row per Steam review. Kept separate from the daily engagement
+# table because playtime-at-review cohorts can't be pre-aggregated away.
+# MERGE / dedupe on review_id; filtered to review_ts >= HISTORY_START.
+SILVER_REVIEWS_COLUMNS: list[tuple[str, str]] = [
+    ("game_id", "string"),
+    ("review_id", "string"),
+    ("review_ts", "long"),
+    ("voted_up", "boolean"),
+    ("playtime_at_review_min", "long"),
+    ("language", "string"),
+    ("received_free", "boolean"),
+]
+
+# Grain: game_id x snapshot_date x est_source. Append-only — the history of
+# estimates is itself the time series. `est_source` is "steamspy" (owner-tier
+# bounds) or "gamalytic" (revenue/unit estimates); columns the source doesn't
+# produce stay NULL.
+SILVER_SALES_ESTIMATES_COLUMNS: list[tuple[str, str]] = [
+    ("game_id", "string"),
+    ("snapshot_date", "date"),
+    ("est_owners_low", "long"),
+    ("est_owners_high", "long"),
+    ("est_units_lifetime", "long"),
+    ("est_revenue_lifetime_usd", "double"),
+    ("est_source", "string"),
+]
+
+
+# ---------------------------------------------------------------------------
 # Gold
 # ---------------------------------------------------------------------------
 
@@ -164,6 +201,56 @@ GOLD_GENRE_COLUMNS: list[tuple[str, str]] = [
     ("title_count", "long"),
     ("release_share", "double"),
     ("avg_price_cents", "double"),
+]
+
+# Grain: game_id x week (Monday date). Each raw signal is indexed to that
+# title's own trailing baseline (100 = its own recent normal) so Twitch,
+# Wikipedia, Trends, and Reddit become comparable and composable.
+GOLD_ATTENTION_COLUMNS: list[tuple[str, str]] = [
+    ("game_id", "string"),
+    ("week", "string"),
+    ("twitch_idx", "double"),
+    ("wiki_idx", "double"),
+    ("trends_idx", "double"),
+    ("reddit_idx", "double"),
+    ("attention_index", "double"),
+    ("attention_wow_delta", "double"),
+    ("twitch_avg_viewers", "double"),
+    ("wiki_pageviews", "long"),
+]
+
+# Grain: week x cohort ("on_steam" | "off_steam") — the direct answer to
+# "how much PC gaming attention would a Steam-only catalog miss."
+GOLD_STEAM_VS_OFFSTEAM_COLUMNS: list[tuple[str, str]] = [
+    ("week", "string"),
+    ("cohort", "string"),
+    ("title_count", "long"),
+    ("twitch_viewer_share", "double"),
+    ("wiki_pageview_share", "double"),
+    ("top20_attention_titles", "long"),
+]
+
+# Grain: game_id x month. Backs a "top movers" leaderboard.
+GOLD_TITLE_MONTHLY_COLUMNS: list[tuple[str, str]] = [
+    ("game_id", "string"),
+    ("month", "string"),
+    ("twitch_avg_viewers", "double"),
+    ("rank", "int"),
+    ("rank_delta", "int"),
+    ("reviews_posted", "long"),
+    ("est_revenue_snapshot", "double"),
+]
+
+# Grain: game_id x month, Steam subset only. All est_ columns are estimates —
+# clearly labeled so Genie/dashboards never present them as ground truth.
+GOLD_REVENUE_ENGAGEMENT_COLUMNS: list[tuple[str, str]] = [
+    ("game_id", "string"),
+    ("month", "string"),
+    ("est_revenue_lifetime_usd", "double"),
+    ("est_units_lifetime", "long"),
+    ("reviews_posted", "long"),
+    ("twitch_avg_viewers", "double"),
+    ("revenue_per_avg_viewer", "double"),
 ]
 
 

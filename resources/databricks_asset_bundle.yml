@@ -22,6 +22,9 @@ variables:
   landing_path:
     description: UC Volume folder holding raw *.jsonl files.
     default: /Volumes/main/game_trends/landing
+  seed_path:
+    description: Path to the curated seed crosswalk CSV (data/seed/seed_titles.csv), as seen by the notebook.
+    default: ../data/seed/seed_titles.csv
 
 targets:
   dev:
@@ -55,12 +58,47 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}
+              seed_path: ${var.seed_path}
+
+        # engagement_to_silver and reviews_and_estimates_to_silver own
+        # disjoint columns of silver_engagement_daily (see
+        # docs/architecture.md), so they run in parallel off the same
+        # upstream dependency.
+        - task_key: engagement_to_silver
+          depends_on:
+            - task_key: bronze_to_silver
+          notebook_task:
+            notebook_path: ../notebooks/05_engagement_to_silver.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              seed_path: ${var.seed_path}
+
+        - task_key: reviews_and_estimates_to_silver
+          depends_on:
+            - task_key: bronze_to_silver
+          notebook_task:
+            notebook_path: ../notebooks/06_reviews_and_estimates_to_silver.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              seed_path: ${var.seed_path}
 
         - task_key: gold_metrics
           depends_on:
             - task_key: bronze_to_silver
           notebook_task:
             notebook_path: ../notebooks/03_gold_metrics.py
+            base_parameters:
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+
+        - task_key: gold_engagement_metrics
+          depends_on:
+            - task_key: engagement_to_silver
+            - task_key: reviews_and_estimates_to_silver
+          notebook_task:
+            notebook_path: ../notebooks/07_gold_engagement_metrics.py
             base_parameters:
               catalog: ${var.catalog}
               schema: ${var.schema}

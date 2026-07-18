@@ -2,17 +2,22 @@
 # MAGIC %md
 # MAGIC # 05 — Engagement snapshots → `silver_engagement_daily`
 # MAGIC
-# MAGIC Rolls bronze `twitch_helix` and `steam_ccu` snapshot rows up to one row
-# MAGIC per `game_id` × `date` and MERGEs them into `silver_engagement_daily`,
-# MAGIC the wide cross-platform engagement fact table.
+# MAGIC Rolls every bronze snapshot source — `twitch_helix`, `steam_ccu`,
+# MAGIC `wikipedia_pageviews`, `google_trends`, `reddit` — up to one row per
+# MAGIC `game_id` × `date` and MERGEs them into `silver_engagement_daily`, the
+# MAGIC wide cross-platform engagement fact table. (`steam_reviews` is handled by
+# MAGIC notebook `06`, since review-level dedup has to happen before daily
+# MAGIC aggregation — see `reviews_daily_from_silver`.)
 # MAGIC
 # MAGIC The table is **column-owned by source**: this notebook writes only the
-# MAGIC Twitch and Steam CCU columns; Wikipedia / Trends / Reddit / review jobs
-# MAGIC fill their own columns via the same (game_id, date) MERGE pattern without
-# MAGIC touching these. Off-Steam titles simply never receive Steam columns.
+# MAGIC columns these five sources produce; the review job (`06`) fills
+# MAGIC `reviews_posted` / `reviews_positive_share` via the same (game_id, date)
+# MAGIC MERGE pattern without touching these. Off-Steam titles simply never
+# MAGIC receive Steam columns, and days before a source's first poll/backfill
+# MAGIC stay NULL for that source's columns.
 # MAGIC
 # MAGIC Re-running is idempotent: the rollup recomputes each (game_id, date) from
-# MAGIC the full bronze history for these two sources.
+# MAGIC the full bronze history for these five sources.
 
 # COMMAND ----------
 
@@ -48,11 +53,13 @@ from datetime import datetime, timezone
 
 from pyspark.sql import functions as F
 
+SNAPSHOT_SOURCES = ["twitch_helix", "steam_ccu", "wikipedia_pageviews", "google_trends", "reddit"]
+
 bronze_rows = [
     r.asDict()
     for r in (
         spark.table(BRONZE)
-        .filter(F.col("source").isin("twitch_helix", "steam_ccu"))
+        .filter(F.col("source").isin(*SNAPSHOT_SOURCES))
         .select("source", "entity_key", "extract_date", "payload")
         .collect()
     )
@@ -103,8 +110,9 @@ spark.sql(
 
 daily_df.createOrReplaceTempView("_engagement_batch")
 
-# Update ONLY the columns this job owns — other sources' columns are never
-# touched, so job order across sources doesn't matter.
+# Update ONLY the columns this job owns (reviews_posted / reviews_positive_share
+# belong to notebook 06) — other sources' columns are never touched, so job
+# order across sources doesn't matter.
 spark.sql(
     f"""
     MERGE INTO {SILVER_ENGAGEMENT} t
@@ -114,6 +122,10 @@ spark.sql(
         t.twitch_avg_viewers = coalesce(s.twitch_avg_viewers, t.twitch_avg_viewers),
         t.twitch_peak_viewers = coalesce(s.twitch_peak_viewers, t.twitch_peak_viewers),
         t.twitch_avg_channels = coalesce(s.twitch_avg_channels, t.twitch_avg_channels),
+        t.wiki_pageviews = coalesce(s.wiki_pageviews, t.wiki_pageviews),
+        t.trends_index = coalesce(s.trends_index, t.trends_index),
+        t.reddit_posts = coalesce(s.reddit_posts, t.reddit_posts),
+        t.reddit_subscribers = coalesce(s.reddit_subscribers, t.reddit_subscribers),
         t.steam_ccu_peak = coalesce(s.steam_ccu_peak, t.steam_ccu_peak),
         t.ingested_at = s.ingested_at
     WHEN NOT MATCHED THEN INSERT *
@@ -127,7 +139,10 @@ display(
         SELECT date,
                COUNT(*) AS titles,
                SUM(CASE WHEN twitch_avg_viewers IS NOT NULL THEN 1 ELSE 0 END) AS with_twitch,
-               SUM(CASE WHEN steam_ccu_peak IS NOT NULL THEN 1 ELSE 0 END) AS with_ccu
+               SUM(CASE WHEN steam_ccu_peak IS NOT NULL THEN 1 ELSE 0 END) AS with_ccu,
+               SUM(CASE WHEN wiki_pageviews IS NOT NULL THEN 1 ELSE 0 END)   AS with_wiki,
+               SUM(CASE WHEN trends_index IS NOT NULL THEN 1 ELSE 0 END)    AS with_trends,
+               SUM(CASE WHEN reddit_subscribers IS NOT NULL THEN 1 ELSE 0 END) AS with_reddit
         FROM {SILVER_ENGAGEMENT}
         GROUP BY date ORDER BY date DESC LIMIT 14
         """
