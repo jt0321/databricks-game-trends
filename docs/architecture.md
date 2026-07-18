@@ -9,12 +9,16 @@ flowchart LR
     subgraph Sources["Public Sources"]
         A1[Steam Store API]
         A2[SteamSpy API]
-        A3[(Twitch Helix<br/>optional)]
+        A3[Twitch Helix]
+        A4[Steam CCU API]
+        A5[data/seed/seed_titles.csv<br/>curated crosswalk]
     end
 
     subgraph Landing["Landing (local or cloud volume)"]
         L1[data/raw/steam_apps.jsonl]
         L2[data/raw/steamspy_top.jsonl]
+        L3[data/raw/twitch_streams.jsonl]
+        L4[data/raw/steam_ccu.jsonl]
     end
 
     subgraph Bronze["Bronze - raw Delta"]
@@ -22,7 +26,8 @@ flowchart LR
     end
 
     subgraph Silver["Silver - cleaned & typed"]
-        S1[(silver_titles<br/>deduped, schema-enforced)]
+        S1[(silver_titles<br/>cross-platform dimension)]
+        S2[(silver_engagement_daily<br/>game_id × date)]
     end
 
     subgraph Gold["Gold - business metrics"]
@@ -37,10 +42,16 @@ flowchart LR
 
     A1 --> L1
     A2 --> L2
-    A3 -. optional .-> L1
+    A3 --> L3
+    A4 --> L4
     L1 --> B1
     L2 --> B1
+    L3 --> B1
+    L4 --> B1
     B1 --> S1
+    B1 --> S2
+    A5 --> S1
+    A5 --> S2
     S1 --> G1
     S1 --> G2
     G1 --> D1
@@ -56,7 +67,9 @@ flowchart LR
 - **Purpose**: append-only landing of raw JSON payloads with provenance metadata.
 - **Write pattern**: `df.write.format("delta").mode("append")`.
 - **Schema (minimum)**:
-  - `source` STRING — `"steam_store"` | `"steamspy"` | `"twitch_helix"`
+  - `source` STRING — `"steam_store"` | `"steamspy"` | `"twitch_helix"` | `"steam_ccu"` | …
+  - `entity_key` STRING — source-native ID (appid, Twitch category, …); nullable for legacy rows
+  - `extract_date` DATE — the date the payload *describes* (≠ `ingested_at` for backfills)
   - `ingested_at` TIMESTAMP
   - `payload` STRING (raw JSON; intentionally not exploded yet)
   - `batch_id` STRING (UUID per extraction run)
@@ -79,6 +92,21 @@ flowchart LR
 - **Derived fields**: `release_year`, `is_free`, `supports_linux`, `supports_mac`, `supports_windows`, `primary_genre`, `genre_list`.
 - **Quality rules**: drop rows missing `appid` or `name` at the Steam-parse
   stage; cast `price_cents` to INT; coalesce empty genre lists to `["unknown"]`.
+
+### Silver — `silver_engagement_daily`
+
+- **Purpose**: the wide cross-platform engagement fact table — one row per
+  `game_id` × `date`, spanning Twitch viewership/channels, Steam CCU peak,
+  and (as those sources land) Wikipedia pageviews, Google Trends, Reddit, and
+  review velocity.
+- **Column ownership**: each source's job fills only its own columns via
+  `MERGE ON (game_id, date)` with per-column updates, so jobs are
+  order-independent and never clobber each other. NULLs are meaningful:
+  off-Steam titles never get Steam columns; days before a source's first
+  poll or backfill stay NULL.
+- **Snapshot semantics**: Twitch and CCU are snapshot polls rolled up to
+  daily avg/peak (`build_engagement_daily`); rollups recompute from full
+  Bronze history for those sources, so re-runs are idempotent.
 
 ### Gold — `gold_platform_trends`
 

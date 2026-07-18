@@ -9,6 +9,7 @@ import pytest
 from pathlib import Path
 
 from game_trends.transforms import (
+    build_engagement_daily,
     build_silver_titles,
     dedupe_silver,
     gold_genre_trends,
@@ -17,6 +18,7 @@ from game_trends.transforms import (
     parse_release_year,
     slugify,
     steam_payload_to_silver,
+    summarize_twitch_streams,
 )
 
 SEED_CSV = Path(__file__).resolve().parent.parent / "data" / "seed" / "seed_titles.csv"
@@ -283,6 +285,133 @@ class TestBuildSilverTitles:
         ids = [r["game_id"] for r in out]
         assert ids == sorted(ids)
         assert len(ids) == len(set(ids))
+
+
+# ---------------------------------------------------------------------------
+# Engagement snapshots
+# ---------------------------------------------------------------------------
+
+class TestSummarizeTwitchStreams:
+    def test_sums_and_counts(self):
+        streams = [
+            {"viewer_count": 1000},
+            {"viewer_count": 300},
+            {"viewer_count": 5},
+        ]
+        out = summarize_twitch_streams(streams)
+        assert out == {"viewers": 1305, "channels": 3, "peak_stream_viewers": 1000}
+
+    def test_ignores_malformed_entries(self):
+        streams = [{"viewer_count": 10}, {"viewer_count": "n/a"}, {}, {"viewer_count": -5}]
+        out = summarize_twitch_streams(streams)
+        assert out == {"viewers": 10, "channels": 1, "peak_stream_viewers": 10}
+
+    def test_empty(self):
+        assert summarize_twitch_streams([]) == {
+            "viewers": 0,
+            "channels": 0,
+            "peak_stream_viewers": 0,
+        }
+
+
+class TestBuildEngagementDaily:
+    SEED = [
+        {"game_id": "fortnite", "steam_appid": None, "twitch_category": "Fortnite"},
+        {"game_id": "dota-2", "steam_appid": 570, "twitch_category": "Dota 2"},
+    ]
+
+    @staticmethod
+    def _twitch(category, date, viewers, channels=10):
+        return {
+            "source": "twitch_helix",
+            "entity_key": category,
+            "extract_date": date,
+            "payload": json.dumps({"viewers": viewers, "channels": channels}),
+        }
+
+    @staticmethod
+    def _ccu(appid, date, count):
+        return {
+            "source": "steam_ccu",
+            "entity_key": str(appid),
+            "extract_date": date,
+            "payload": json.dumps({"response": {"player_count": count, "result": 1}}),
+        }
+
+    def test_averages_and_peaks_multiple_snapshots(self):
+        rows = [
+            self._twitch("Fortnite", "2026-07-18", 100_000, channels=500),
+            self._twitch("Fortnite", "2026-07-18", 200_000, channels=700),
+            self._ccu(570, "2026-07-18", 400_000),
+            self._ccu(570, "2026-07-18", 600_000),
+        ]
+        out = build_engagement_daily(rows, self.SEED)
+        by_id = {r["game_id"]: r for r in out}
+
+        fortnite = by_id["fortnite"]
+        assert fortnite["twitch_avg_viewers"] == pytest.approx(150_000)
+        assert fortnite["twitch_peak_viewers"] == 200_000
+        assert fortnite["twitch_avg_channels"] == pytest.approx(600)
+        assert "steam_ccu_peak" not in fortnite  # off-Steam: column never set
+
+        assert by_id["dota-2"]["steam_ccu_peak"] == 600_000
+
+    def test_same_title_both_sources_merges_into_one_row(self):
+        rows = [
+            self._twitch("Dota 2", "2026-07-18", 50_000),
+            self._ccu(570, "2026-07-18", 800_000),
+        ]
+        out = build_engagement_daily(rows, self.SEED)
+        assert len(out) == 1
+        row = out[0]
+        assert row["game_id"] == "dota-2"
+        assert row["twitch_avg_viewers"] == pytest.approx(50_000)
+        assert row["steam_ccu_peak"] == 800_000
+
+    def test_days_stay_separate(self):
+        rows = [
+            self._ccu(570, "2026-07-17", 100),
+            self._ccu(570, "2026-07-18", 200),
+        ]
+        out = build_engagement_daily(rows, self.SEED)
+        assert [(r["date"], r["steam_ccu_peak"]) for r in out] == [
+            ("2026-07-17", 100),
+            ("2026-07-18", 200),
+        ]
+
+    def test_unknown_entities_and_bad_payloads_skipped(self):
+        rows = [
+            self._twitch("Just Chatting", "2026-07-18", 500_000),  # not in universe
+            self._ccu(99999, "2026-07-18", 123),  # not in universe
+            {
+                "source": "steam_ccu",
+                "entity_key": "570",
+                "extract_date": "2026-07-18",
+                "payload": "{not json",
+            },
+            {
+                "source": "twitch_helix",
+                "entity_key": "Fortnite",
+                "extract_date": None,  # missing date
+                "payload": json.dumps({"viewers": 1, "channels": 1}),
+            },
+        ]
+        assert build_engagement_daily(rows, self.SEED) == []
+
+    def test_accepts_dict_payloads_and_date_objects(self):
+        from datetime import date
+
+        rows = [
+            {
+                "source": "steam_ccu",
+                "entity_key": "570",
+                "extract_date": date(2026, 7, 18),
+                "payload": {"response": {"player_count": 42, "result": 1}},
+            }
+        ]
+        out = build_engagement_daily(rows, self.SEED)
+        assert out[0]["date"] == "2026-07-18"
+        assert out[0]["steam_ccu_peak"] == 42
 
 
 # ---------------------------------------------------------------------------

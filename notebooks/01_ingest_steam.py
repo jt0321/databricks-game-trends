@@ -46,14 +46,18 @@ print(f"batch_id = {batch_id}")
 # MAGIC %md
 # MAGIC ## Read raw JSONL
 # MAGIC
-# MAGIC Each line is already shaped as `{source, ingested_at, payload}` by the
-# MAGIC local extractor, so Bronze is essentially a structured append.
+# MAGIC Each line is shaped as `{source, entity_key, extract_date, ingested_at,
+# MAGIC payload}` by the local extractors (older Steam-metadata files without
+# MAGIC `entity_key`/`extract_date` still load — the columns come through NULL),
+# MAGIC so Bronze is essentially a structured append.
 
 # COMMAND ----------
 
 raw_schema = T.StructType(
     [
         T.StructField("source", T.StringType()),
+        T.StructField("entity_key", T.StringType()),
+        T.StructField("extract_date", T.StringType()),  # parsed below
         T.StructField("ingested_at", T.StringType()),  # parsed below
         T.StructField("payload", T.StringType()),
     ]
@@ -62,9 +66,10 @@ raw_schema = T.StructType(
 raw_df = (
     spark.read.schema(raw_schema)
     .json(f"{LANDING}/*.jsonl")
+    .withColumn("extract_date", F.to_date("extract_date"))
     .withColumn("ingested_at", F.to_timestamp("ingested_at"))
     .withColumn("batch_id", F.lit(batch_id))
-    .select("source", "ingested_at", "batch_id", "payload")
+    .select("source", "entity_key", "extract_date", "ingested_at", "batch_id", "payload")
 )
 
 display(raw_df.limit(5))
@@ -74,6 +79,10 @@ print(f"Rows to append: {raw_df.count()}")
 
 # MAGIC %md
 # MAGIC ## Append to Bronze (create if missing)
+# MAGIC
+# MAGIC > **Migration note**: if `bronze_game_events` predates the
+# MAGIC > `entity_key`/`extract_date` columns, add them once with
+# MAGIC > `ALTER TABLE ... ADD COLUMNS (entity_key STRING, extract_date DATE)`.
 
 # COMMAND ----------
 
@@ -81,6 +90,8 @@ spark.sql(
     f"""
     CREATE TABLE IF NOT EXISTS {BRONZE} (
         source STRING,
+        entity_key STRING,
+        extract_date DATE,
         ingested_at TIMESTAMP,
         batch_id STRING,
         payload STRING

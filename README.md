@@ -36,11 +36,15 @@ See [`docs/architecture.md`](docs/architecture.md) for the full Mermaid diagram 
 
 ## 3. Data Sources
 
-| Source                | Auth          | Used for                           |
-| --------------------- | ------------- | ---------------------------------- |
-| Steam Store API       | None (public) | Title metadata, genres, price, OS  |
-| SteamSpy API          | None (public) | Ownership tiers, tags, playtime    |
-| Twitch Helix *(opt.)* | App token     | Streaming/viewer enrichment (docs only) |
+| Source                | Auth               | Used for                                         |
+| --------------------- | ------------------ | ------------------------------------------------ |
+| Steam Store API       | None (public)      | Title metadata, genres, price, OS                |
+| SteamSpy API          | None (public)      | Ownership tiers, tags, playtime                  |
+| Steam CCU API         | None (public)      | Concurrent players per title (snapshot polls)    |
+| Twitch Helix          | Free app token     | Viewers + channel counts per game — the cross-storefront signal covering off-Steam titles |
+| Seed crosswalk CSV    | n/a (in repo)      | Curated title universe + per-source ID mapping   |
+
+The tracked universe is defined by [`data/seed/seed_titles.csv`](data/seed/seed_titles.csv) — a curated crosswalk that includes titles **outside Steam** (Fortnite, Roblox, Minecraft, League of Legends, …). The multi-platform roadmap, including backfillable sources (Steam reviews, Wikipedia pageviews, Google Trends), is in [`docs/multi_platform_plan.md`](docs/multi_platform_plan.md).
 
 Full details, rate-limit etiquette, and env vars in [`docs/data_sources.md`](docs/data_sources.md).
 
@@ -51,9 +55,14 @@ Full details, rate-limit etiquette, and env vars in [`docs/data_sources.md`](doc
 ### Local (for transforms, tests, sample extraction)
 
 ```bash
-uv run pytest               # runs tests on pure-Python transforms (automatically installs dependencies)
-uv run game-trends-extract  # pulls a tiny sample from Steam/SteamSpy to data/raw/
+uv run pytest                          # runs tests on pure-Python transforms (automatically installs dependencies)
+uv run game-trends-extract             # pulls a tiny sample from Steam/SteamSpy to data/raw/
+uv run game-trends-extract-engagement  # snapshots Twitch viewership + Steam CCU for the seed universe
 ```
+
+The engagement extractor's Steam CCU half needs no credentials
+(`--skip-twitch`); the Twitch half needs the free `TWITCH_CLIENT_ID` /
+`TWITCH_CLIENT_SECRET` pair (see `.env.example`).
 
 Python 3.10+ and [uv](https://github.com/astral-sh/uv) are required. Spark is **not** needed locally — Spark code lives in the Databricks notebooks; local logic is pure Python so tests stay fast and dependency-light.
 
@@ -61,7 +70,7 @@ Python 3.10+ and [uv](https://github.com/astral-sh/uv) are required. Spark is **
 
 1. Import this repo as a **Git folder** (Repos) in your workspace.
 2. Attach the notebooks under `notebooks/` to a serverless or shared cluster (DBR 14.3+).
-3. Run `01_ingest_steam.py` → `02_bronze_to_silver.py` → `03_gold_metrics.py` in order.
+3. Run `01_ingest_steam.py` → `02_bronze_to_silver.py` → `05_engagement_to_silver.py` → `03_gold_metrics.py` in order.
 4. Open `notebooks/04_genie_demo_questions.sql` in Databricks SQL or attach the gold tables to a Genie space.
 
 ### Deploying as a job/pipeline
@@ -121,20 +130,24 @@ The project is designed to be extended: new sources land in Bronze as additional
 ├── .gitignore
 ├── docs/
 │   ├── architecture.md
-│   └── data_sources.md
+│   ├── data_sources.md
+│   └── multi_platform_plan.md
 ├── notebooks/
 │   ├── 01_ingest_steam.py
 │   ├── 02_bronze_to_silver.py
 │   ├── 03_gold_metrics.py
-│   └── 04_genie_demo_questions.sql
+│   ├── 04_genie_demo_questions.sql
+│   └── 05_engagement_to_silver.py
 ├── src/game_trends/
 │   ├── __init__.py
-│   ├── extract_steam.py        # local CLI extractor
+│   ├── extract_steam.py        # local CLI extractor (Steam metadata)
+│   ├── extract_engagement.py   # local CLI extractor (Twitch + Steam CCU snapshots)
 │   ├── schema.py               # canonical schemas
 │   └── transforms.py           # pure-Python silver/gold logic
 ├── tests/
 │   ├── test_transforms.py
 │   └── test_schema.py
+├── data/seed/                  # curated title universe + ID crosswalk
 ├── data/sample/                # tiny hand-written fixtures
 ├── resources/
 │   └── databricks_asset_bundle.yml

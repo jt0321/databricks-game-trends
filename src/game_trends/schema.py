@@ -34,8 +34,14 @@ SEED_COLUMNS: list[tuple[str, str]] = [
 # Bronze
 # ---------------------------------------------------------------------------
 
+# `entity_key` is the source-native ID (steam appid, Twitch category name,
+# wikipedia article, ...). `extract_date` is the date the payload *describes*,
+# which differs from `ingested_at` for backfills. Both are nullable so rows
+# from the original Steam-only extractor remain valid.
 BRONZE_COLUMNS: list[tuple[str, str]] = [
     ("source", "string"),
+    ("entity_key", "string"),
+    ("extract_date", "date"),
     ("ingested_at", "timestamp"),
     ("batch_id", "string"),
     ("payload", "string"),
@@ -117,6 +123,30 @@ class SilverTitle:
 
 
 # ---------------------------------------------------------------------------
+# Silver — engagement fact table
+# ---------------------------------------------------------------------------
+
+# Grain: game_id x date. Wide and nullable by design: each source's job fills
+# only its own columns (off-Steam titles never get Steam columns; days before
+# a source's first poll or backfill stay NULL). MERGE on (game_id, date).
+SILVER_ENGAGEMENT_COLUMNS: list[tuple[str, str]] = [
+    ("game_id", "string"),
+    ("date", "date"),
+    ("twitch_avg_viewers", "double"),
+    ("twitch_peak_viewers", "long"),
+    ("twitch_avg_channels", "double"),
+    ("wiki_pageviews", "long"),
+    ("trends_index", "double"),
+    ("reddit_posts", "long"),
+    ("reddit_subscribers", "long"),
+    ("steam_ccu_peak", "long"),
+    ("reviews_posted", "long"),
+    ("reviews_positive_share", "double"),
+    ("ingested_at", "timestamp"),
+]
+
+
+# ---------------------------------------------------------------------------
 # Gold
 # ---------------------------------------------------------------------------
 
@@ -151,6 +181,7 @@ def spark_struct(columns: list[tuple[str, str]]):  # pragma: no cover - Databric
         "double": T.DoubleType(),
         "boolean": T.BooleanType(),
         "timestamp": T.TimestampType(),
+        "date": T.DateType(),
         "array<string>": T.ArrayType(T.StringType()),
     }
     return T.StructType(

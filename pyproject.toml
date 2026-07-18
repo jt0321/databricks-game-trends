@@ -21,6 +21,7 @@ dev = [
 
 [project.scripts]
 game-trends-extract = "game_trends.extract_steam:main"
+game-trends-extract-engagement = "game_trends.extract_engagement:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

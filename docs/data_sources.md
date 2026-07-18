@@ -1,6 +1,10 @@
 # Data Sources
 
-All primary sources are **public and free**. Twitch is documented as an optional extension but is not required by the default pipeline.
+All sources are **public and free** (some need a free app registration). The
+full multi-platform source roadmap — including backfillable history and the
+sources not yet wired in — is in
+[`multi_platform_plan.md`](multi_platform_plan.md); this file documents what
+the extractors use today.
 
 ## 1. Steam Store API
 
@@ -22,17 +26,39 @@ All primary sources are **public and free**. Twitch is documented as an optional
 - **Format**: JSON dict keyed by `appid`.
 - **Rate limit**: documented at **1 request/sec** for `appdetails`; the bulk "all" endpoints are heavier and best avoided unless you need a full refresh. The extractor sleeps 1.2 s between calls.
 
-## 3. Twitch Helix — *optional extension only*
+## 3. Steam CCU (official)
+
+- **Endpoint**: `https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=<id>`
+- **Auth**: none.
+- **Format**: `{ "response": { "player_count": <int>, "result": 1 } }`.
+- **Semantics**: current-moment concurrent players only — **no history**. The
+  pipeline accrues its own history by polling; `silver_engagement_daily`
+  keeps the daily peak across polls.
+- Used by `uv run game-trends-extract-engagement` (works with zero
+  credentials via `--skip-twitch`). The extractor sleeps 1 s between calls.
+
+## 4. Twitch Helix — *core engagement source*
 
 - **Base URL**: `https://api.twitch.tv/helix/`
-- **Why optional**: requires registering a Twitch developer app to obtain a **Client ID** + **Client Secret**, then exchanging them for an **app access token** via OAuth client-credentials flow. This is free but not zero-friction, so it is **not** part of the default pipeline.
-- **Useful endpoints** *(if you enable it)*:
-  - `games?name=<title>` — resolve a Steam title to a Twitch `game_id`.
-  - `streams?game_id=<id>&first=100` — current viewer counts.
-- **Rate limit**: 800 points/minute per app token (Helix point system).
-- **Env vars** (only needed if extending):
-  - `TWITCH_CLIENT_ID`
-  - `TWITCH_CLIENT_SECRET`
+- **Why core**: the only free, official, cross-storefront demand signal — it
+  covers Fortnite, Roblox, Minecraft, and League of Legends exactly as well
+  as any Steam title, which is what makes `silver_engagement_daily`
+  comparable across the whole seed universe.
+- **Auth**: register a free Twitch developer app for a **Client ID** +
+  **Client Secret**, exchanged for an app access token via the OAuth
+  client-credentials flow. Missing credentials don't break the extractor —
+  the Twitch half is skipped with a notice.
+- **Endpoints used**:
+  - `games?name=<category>` — resolve seed `twitch_category` names to Twitch
+    game IDs (batched, up to 100 names per call).
+  - `streams?game_id=<id>&first=100` — paged up to 5 pages per category;
+    each snapshot stores summed viewers, channel count, and the top single
+    stream. Viewer mass concentrates in top streams, so the cap loses little.
+- **Semantics**: live snapshots only — Twitch offers **no historical
+  endpoints**. History accrues from polling, ideally a few times per day.
+- **Rate limit**: 800 points/minute per app token (Helix point system); the
+  extractor sleeps 0.5 s between categories.
+- **Env vars**: `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`.
 
 ## Environment variables
 
@@ -43,8 +69,8 @@ The local extractor reads only optional, **non-secret** settings:
 | `GAME_TRENDS_UA`       | `User-Agent` header sent to public APIs (etiquette). | `game-trend-lakehouse/0.1`       |
 | `GAME_TRENDS_SAMPLE_N` | Number of titles to pull in `uv run game-trends-extract`. | `25`                             |
 | `GAME_TRENDS_OUT_DIR`  | Where raw JSONL is written.                          | `data/raw`                       |
-| `TWITCH_CLIENT_ID`     | *(optional extension)* Twitch app client id.         | unset                            |
-| `TWITCH_CLIENT_SECRET` | *(optional extension)* Twitch app client secret.     | unset                            |
+| `TWITCH_CLIENT_ID`     | Twitch app client id (engagement extractor).         | unset — Twitch half skipped      |
+| `TWITCH_CLIENT_SECRET` | Twitch app client secret (engagement extractor).     | unset — Twitch half skipped      |
 
 See `.env.example` for the local template. **No real secrets are ever committed.**
 

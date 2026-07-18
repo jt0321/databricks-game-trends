@@ -270,6 +270,110 @@ def build_silver_titles(
 
 
 # ---------------------------------------------------------------------------
+# Engagement snapshots → silver_engagement_daily
+# ---------------------------------------------------------------------------
+
+
+def summarize_twitch_streams(streams: Iterable[dict[str, Any]]) -> dict[str, int]:
+    """Reduce one page-walk of Helix ``/streams`` for a category to a snapshot.
+
+    Viewer mass on Twitch concentrates in the top streams, so a capped page
+    walk (the extractor fetches up to ~500 streams) captures nearly all
+    viewers even for huge categories; ``channels`` is a floor, not a total.
+    """
+    viewers = 0
+    channels = 0
+    peak = 0
+    for s in streams:
+        v = s.get("viewer_count")
+        if not isinstance(v, int) or v < 0:
+            continue
+        viewers += v
+        channels += 1
+        peak = max(peak, v)
+    return {"viewers": viewers, "channels": channels, "peak_stream_viewers": peak}
+
+
+def _parse_payload(payload: str | dict[str, Any]) -> dict[str, Any] | None:
+    if isinstance(payload, dict):
+        return payload
+    try:
+        parsed = json.loads(payload)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def build_engagement_daily(
+    bronze_rows: Iterable[dict[str, Any]],
+    seed_rows: Iterable[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Roll bronze `twitch_helix` / `steam_ccu` snapshots up to game_id x date.
+
+    Input rows follow the bronze envelope: ``source``, ``entity_key``,
+    ``extract_date`` (ISO date string or date), ``payload``. Twitch payloads
+    are per-category snapshot summaries (``{"viewers", "channels", ...}``,
+    entity_key = category name); Steam CCU payloads are the raw
+    ``GetNumberOfCurrentPlayers`` response (entity_key = appid).
+
+    Multiple snapshots per day aggregate to avg/peak. Snapshots whose
+    entity_key is not in the seed crosswalk are skipped — engagement is only
+    tracked for the curated universe. Columns owned by other sources are left
+    out; the MERGE writes only what this builder produces.
+    """
+    by_category: dict[str, str] = {}
+    by_appid: dict[int, str] = {}
+    for seed in seed_rows:
+        if seed.get("twitch_category"):
+            by_category[seed["twitch_category"]] = seed["game_id"]
+        if seed.get("steam_appid") is not None:
+            by_appid[seed["steam_appid"]] = seed["game_id"]
+
+    twitch: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    ccu: dict[tuple[str, str], list[int]] = defaultdict(list)
+
+    for row in bronze_rows:
+        payload = _parse_payload(row.get("payload"))
+        date = row.get("extract_date")
+        entity_key = row.get("entity_key")
+        if payload is None or not date or not entity_key:
+            continue
+        date = str(date)
+        source = row.get("source")
+        if source == "twitch_helix":
+            game_id = by_category.get(str(entity_key))
+            if game_id and isinstance(payload.get("viewers"), int):
+                twitch[(game_id, date)].append(payload)
+        elif source == "steam_ccu":
+            try:
+                game_id = by_appid.get(int(entity_key))
+            except (TypeError, ValueError):
+                continue
+            count = (payload.get("response") or {}).get("player_count")
+            if game_id and isinstance(count, int) and count >= 0:
+                ccu[(game_id, date)].append(count)
+
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+
+    def _base(key: tuple[str, str]) -> dict[str, Any]:
+        return out.setdefault(key, {"game_id": key[0], "date": key[1]})
+
+    for key, snaps in twitch.items():
+        row = _base(key)
+        viewers = [s["viewers"] for s in snaps]
+        channels = [s.get("channels", 0) for s in snaps]
+        row["twitch_avg_viewers"] = round(sum(viewers) / len(viewers), 2)
+        row["twitch_peak_viewers"] = max(viewers)
+        row["twitch_avg_channels"] = round(sum(channels) / len(channels), 2)
+
+    for key, counts in ccu.items():
+        row = _base(key)
+        row["steam_ccu_peak"] = max(counts)
+
+    return sorted(out.values(), key=lambda r: (r["game_id"], r["date"]))
+
+
+# ---------------------------------------------------------------------------
 # Silver → Gold
 # ---------------------------------------------------------------------------
 
